@@ -1,0 +1,48 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+.venv
+
+# Environment
+.env
+.env.*
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Database
+*.db
+*.sqlite
+
+# Testing
+.pytest_cache/
+htmlcov/
+
+# Node
+node_modules/
+
+# Misc
+README.md
+*.md
+tests/
+debug_*.py
+quick_test.py
+inspect_response.py

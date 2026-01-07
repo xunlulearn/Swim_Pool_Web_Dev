@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Pool Status | NTU{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    
+    <!-- Status Card -->
+    <div id="status-card" class="relative overflow-hidden rounded-2xl bg-white shadow-xl transition-all duration-500 border border-gray-100">
+        <!-- Dynamic Background Gradient -->
+        <div id="status-bg-gradient" class="absolute inset-0 opacity-10 transition-colors duration-500 bg-gradient-to-br from-gray-200 to-gray-50"></div>
+        
+        <div class="relative p-6 sm:p-10 flex flex-col items-center text-center">
+            
+            <!-- Status Icon/Badge -->
+            <div id="status-icon-container" class="mb-6 transform transition-transform duration-500">
+                <div id="status-ring" class="flex items-center justify-center w-24 h-24 rounded-full bg-gray-100 text-gray-400 ring-4 ring-gray-50 transition-colors duration-500">
+                    <!-- Icon SVG inserted by JS -->
+                    <svg class="w-10 h-10 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </div>
+            </div>
+
+            <!-- Status Text -->
+            <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900 mb-2">
+                Pool is <span id="status-text" class="text-gray-500">Loading...</span>
+            </h1>
+            
+            <p id="status-message" class="text-lg text-slate-600 max-w-md mx-auto mb-8 font-medium">
+                Connecting to weather service...
+            </p>
+
+            <!-- Metrics Grid -->
+            <div class="grid grid-cols-2 gap-4 w-full max-w-sm mb-6">
+                <div class="bg-white/60 p-4 rounded-xl shadow-sm border border-gray-100 backdrop-blur-sm">
+                    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Nearest Lightning</p>
+                    <p id="metric-distance" class="text-xl font-bold text-slate-700">-- km</p>
+                </div>
+                <div class="bg-white/60 p-4 rounded-xl shadow-sm border border-gray-100 backdrop-blur-sm">
+                    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Lightning Count</p>
+                    <p id="metric-count" class="text-xl font-bold text-slate-700">--</p>
+                </div>
+            </div>
+
+            <!-- Timestamp & Disclaimer -->
+            <div class="text-center space-y-1">
+                <p class="text-xs text-gray-400 font-mono">Last Updated: <span id="last-updated">--:--:--</span></p>
+                <p class="text-[10px] text-gray-300 max-w-xs mx-auto leading-tight">
+                    *Data has 1-3 min delay via NEA. Actual status subject to lifeguard instruction.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions (Optional Future Expansion) -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- Community Teaser -->
+        <a href="{{ url_for('social.feed') }}" class="group block p-6 bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-lg font-semibold text-slate-800 group-hover:text-ntu-blue transition">Community Loop</h3>
+                    <p class="text-sm text-gray-500 mt-1">See who's at the pool right now.</p>
+                </div>
+                <div class="w-10 h-10 bg-blue-50 text-ntu-blue rounded-full flex items-center justify-center group-hover:bg-ntu-blue group-hover:text-white transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z"></path></svg>
+                </div>
+            </div>
+        </a>
+
+        <!-- Locker Status Teaser -->
+        <div class="p-6 bg-white rounded-xl shadow-sm border border-gray-100 opacity-60 cursor-not-allowed">
+             <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-lg font-semibold text-slate-800">Locker Status</h3>
+                    <p class="text-sm text-gray-500 mt-1">Coming Soon</p>
+                </div>
+                <div class="w-10 h-10 bg-gray-50 text-gray-300 rounded-full flex items-center justify-center">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/weather.js') }}"></script>
+{% endblock %}

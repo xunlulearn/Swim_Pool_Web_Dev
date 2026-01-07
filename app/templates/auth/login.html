@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}Login | NTU Pool{% endblock %}
+
+{% block content %}
+<div class="max-w-md mx-auto bg-white p-8 rounded-xl shadow-sm border border-gray-100 mt-10">
+    <h2 class="text-2xl font-bold text-center text-slate-800 mb-6">Welcome Back</h2>
+    
+    <form method="POST" action="{{ url_for('auth.login') }}" class="space-y-4">
+        <div>
+            <label for="email" class="block text-sm font-medium text-slate-700">NTU Email</label>
+            <input type="email" name="email" id="email" required placeholder="name@e.ntu.edu.sg"
+                class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-sm shadow-sm placeholder-gray-400
+                       focus:outline-none focus:border-ntu-blue focus:ring-1 focus:ring-ntu-blue disabled:bg-slate-50 disabled:text-slate-500 disabled:border-slate-200">
+        </div>
+        
+        <div>
+            <label for="password" class="block text-sm font-medium text-slate-700">Password</label>
+            <input type="password" name="password" id="password" required
+                class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-sm shadow-sm placeholder-gray-400
+                       focus:outline-none focus:border-ntu-blue focus:ring-1 focus:ring-ntu-blue">
+        </div>
+
+        <button type="submit" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-ntu-blue hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ntu-blue transition">
+            Sign In
+        </button>
+    </form>
+
+    <div class="mt-6 text-center text-sm">
+        <p class="text-gray-500">Don't have an account? <a href="{{ url_for('auth.register') }}" class="font-medium text-ntu-blue hover:text-blue-800">Register with NTU Email</a></p>
+    </div>
+</div>
+{% endblock %}

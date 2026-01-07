@@ -1,0 +1,12 @@
+Flask>=3.0.0
+SQLAlchemy>=2.0.0
+Flask-SQLAlchemy>=3.1.0
+Flask-Mail>=0.9.1
+Flask-Login>=0.6.2
+psycopg2-binary>=2.9.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+gunicorn>=21.2.0
+itsdangerous>=2.1.0
+pytest>=7.4.0
+pytest-mock>=3.11.0

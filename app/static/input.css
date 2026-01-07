@@ -1,0 +1,12 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+    .btn-primary {
+        @apply bg-ntu-blue text-white px-4 py-2 rounded-lg hover:bg-blue-800 transition;
+    }
+    .card {
+        @apply bg-white shadow-md rounded-xl p-4;
+    }
+}

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}NTU Pool Status{% endblock %}</title>
+    <!-- Tailwind CSS (Development Build) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'ntu-red': '#C20430',
+                        'ntu-blue': '#1D4F91',
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Custom CSS (compiled path for production) -->
+    <!-- <link href="{{ url_for('static', filename='dist/output.css') }}" rel="stylesheet"> -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .glass {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+
+    <!-- Navigation -->
+    <nav class="bg-white/90 backdrop-blur-md sticky top-0 z-50 border-b border-gray-200">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <a href="{{ url_for('index') }}" class="flex-shrink-0 flex items-center gap-2">
+                        <!-- NTU Logo Placeholder / Icon -->
+                        <div class="w-8 h-8 bg-ntu-red rounded-lg flex items-center justify-center text-white font-bold">N</div>
+                        <span class="font-bold text-xl tracking-tight text-slate-800">NTU Pool</span>
+                    </a>
+                </div>
+                <div class="flex items-center gap-4">
+                    {% if current_user and current_user.is_authenticated %}
+                        <a href="{{ url_for('social.feed') }}" class="text-slate-600 hover:text-ntu-blue font-medium transition">Community</a>
+                        <a href="{{ url_for('auth.logout') }}" class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition">Logout</a>
+                    {% else %}
+                        <a href="{{ url_for('auth.login') }}" class="text-sm font-medium text-ntu-blue hover:text-blue-800 transition">Login</a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="flex-grow w-full max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="mb-6 space-y-2">
+                    {% for category, message in messages %}
+                        <div class="p-4 rounded-lg text-sm font-medium
+                            {% if category == 'error' %}bg-red-100 text-red-700{% else %}bg-green-100 text-green-700{% endif %}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-gray-200 mt-auto">
+        <div class="max-w-4xl mx-auto py-6 px-4 sm:px-6 md:flex md:items-center md:justify-between">
+            <div class="mt-8 md:mt-0 md:order-1">
+                <p class="text-center text-xs text-gray-500">
+                    &copy; 2024 NTU Swimming Pool Service. Data sourced from NEA.
+                </p>
+                <p class="text-center text-xs text-gray-400 mt-1">
+                    Developed for reliable student access.
+                </p>
+            </div>
+        </div>
+    </footer>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>
