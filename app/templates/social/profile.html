@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block title %}Profile | NTU Pool{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-6">
+    <!-- User Info Card -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <div class="flex items-center gap-4">
+            <div class="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold text-2xl">
+                {{ current_user.username[0] | upper }}
+            </div>
+            <div>
+                <h1 class="text-xl font-bold text-slate-800">{{ current_user.username }}</h1>
+                <p class="text-sm text-gray-400">{{ current_user.email }}</p>
+                {% if current_user.is_admin() %}
+                <span class="inline-block mt-1 px-2 py-0.5 bg-purple-100 text-purple-600 text-xs font-medium rounded">Admin</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Tab Switch -->
+    <div class="flex border-b border-gray-200">
+        <button onclick="showTab('posts')" id="tab-posts" 
+                class="px-4 py-3 text-sm font-medium border-b-2 border-ntu-blue text-ntu-blue">
+            My Posts ({{ my_posts|length }})
+        </button>
+        <button onclick="showTab('collections')" id="tab-collections"
+                class="px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-slate-700">
+            Saved ({{ collected_posts|length }})
+        </button>
+    </div>
+
+    <!-- My Posts -->
+    <div id="panel-posts" class="space-y-4">
+        {% for post in my_posts %}
+        <a href="{{ url_for('social.post_detail', post_id=post.id) }}" class="block">
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition">
+                <h3 class="font-medium text-slate-800">{{ post.title }}</h3>
+                <div class="flex items-center gap-3 mt-2 text-xs text-gray-400">
+                    <span>{{ post.created_at.strftime('%Y-%m-%d') }}</span>
+                    <span>{{ post.likes.count() }} likes</span>
+                    <span>{{ post.comments.filter_by(is_deleted=False).count() }} comments</span>
+                    <span>{{ post.view_count }} views</span>
+                </div>
+            </div>
+        </a>
+        {% else %}
+        <div class="text-center py-12 text-gray-400">
+            <p>You haven't posted anything yet</p>
+            <a href="{{ url_for('social.create_post') }}" class="inline-block mt-3 text-ntu-blue hover:underline">Create a post</a>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Saved Posts -->
+    <div id="panel-collections" class="space-y-4 hidden">
+        {% for post in collected_posts %}
+        <a href="{{ url_for('social.post_detail', post_id=post.id) }}" class="block">
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition">
+                <h3 class="font-medium text-slate-800">{{ post.title }}</h3>
+                <div class="flex items-center gap-3 mt-2 text-xs text-gray-400">
+                    <span>By {{ post.author.username }}</span>
+                    <span>{{ post.created_at.strftime('%Y-%m-%d') }}</span>
+                </div>
+            </div>
+        </a>
+        {% else %}
+        <div class="text-center py-12 text-gray-400">
+            <p>You haven't saved any posts yet</p>
+            <a href="{{ url_for('social.feed') }}" class="inline-block mt-3 text-ntu-blue hover:underline">Browse community</a>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<script>
+function showTab(tabName) {
+    // Hide all panels
+    document.getElementById('panel-posts').classList.add('hidden');
+    document.getElementById('panel-collections').classList.add('hidden');
+    
+    // Reset all tab styles
+    document.getElementById('tab-posts').classList.remove('border-ntu-blue', 'text-ntu-blue');
+    document.getElementById('tab-posts').classList.add('border-transparent', 'text-gray-500');
+    document.getElementById('tab-collections').classList.remove('border-ntu-blue', 'text-ntu-blue');
+    document.getElementById('tab-collections').classList.add('border-transparent', 'text-gray-500');
+    
+    // Show selected panel
+    document.getElementById('panel-' + tabName).classList.remove('hidden');
+    
+    // Highlight selected tab
+    document.getElementById('tab-' + tabName).classList.remove('border-transparent', 'text-gray-500');
+    document.getElementById('tab-' + tabName).classList.add('border-ntu-blue', 'text-ntu-blue');
+}
+</script>
+{% endblock %}

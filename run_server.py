@@ -16,4 +16,4 @@ def setup_data():
 
 if __name__ == "__main__":
     setup_data()
-    app.run(port=5000, debug=False)
+    app.run(port=5001, debug=True)

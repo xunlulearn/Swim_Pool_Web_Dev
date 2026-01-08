@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Report Management | NTU Pool{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-6">
+    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold text-slate-800">Report Management</h1>
+        <span class="px-3 py-1 bg-purple-100 text-purple-600 text-xs font-medium rounded-full">Admin</span>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-3 gap-4">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 text-center">
+            <div class="text-2xl font-bold text-yellow-500">{{ reports|selectattr('status', 'equalto', 'pending')|list|length }}</div>
+            <div class="text-xs text-gray-400 mt-1">Pending</div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 text-center">
+            <div class="text-2xl font-bold text-green-500">{{ reports|selectattr('status', 'equalto', 'resolved')|list|length }}</div>
+            <div class="text-xs text-gray-400 mt-1">Resolved</div>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 text-center">
+            <div class="text-2xl font-bold text-gray-400">{{ reports|selectattr('status', 'equalto', 'rejected')|list|length }}</div>
+            <div class="text-xs text-gray-400 mt-1">Rejected</div>
+        </div>
+    </div>
+
+    <!-- Report List -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <table class="w-full">
+            <thead class="bg-slate-50 border-b border-gray-100">
+                <tr>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reporter</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reason</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for report in reports %}
+                <tr class="hover:bg-slate-50">
+                    <td class="px-4 py-3 text-sm text-slate-700">{{ report.reporter.username }}</td>
+                    <td class="px-4 py-3 text-sm">
+                        <span class="px-2 py-0.5 rounded text-xs
+                            {% if report.target_type == 'post' %}bg-blue-100 text-blue-600{% else %}bg-gray-100 text-gray-600{% endif %}">
+                            {{ report.target_type }}
+                        </span>
+                        <span class="text-slate-500">#{{ report.target_id }}</span>
+                    </td>
+                    <td class="px-4 py-3 text-sm text-slate-600 max-w-xs truncate">{{ report.reason }}</td>
+                    <td class="px-4 py-3">
+                        <span class="px-2 py-0.5 rounded text-xs font-medium
+                            {% if report.status == 'pending' %}bg-yellow-100 text-yellow-600
+                            {% elif report.status == 'resolved' %}bg-green-100 text-green-600
+                            {% else %}bg-gray-100 text-gray-500{% endif %}">
+                            {% if report.status == 'pending' %}Pending{% elif report.status == 'resolved' %}Resolved{% else %}Rejected{% endif %}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-sm text-gray-400">{{ report.created_at.strftime('%m-%d %H:%M') }}</td>
+                    <td class="px-4 py-3">
+                        {% if report.status == 'pending' %}
+                        <div class="flex gap-2">
+                            <form action="{{ url_for('social.resolve_report', report_id=report.id) }}" method="POST">
+                                <button type="submit" class="text-xs text-green-500 hover:text-green-700 font-medium">Resolve</button>
+                            </form>
+                            <form action="{{ url_for('social.reject_report', report_id=report.id) }}" method="POST">
+                                <button type="submit" class="text-xs text-gray-400 hover:text-gray-600 font-medium">Reject</button>
+                            </form>
+                        </div>
+                        {% else %}
+                        <span class="text-xs text-gray-400">-</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6" class="px-4 py-12 text-center text-gray-400">No reports yet</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

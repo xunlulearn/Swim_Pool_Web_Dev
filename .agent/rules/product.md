@@ -37,15 +37,13 @@ The platform aims to provide real-time swimming pool status and a social communi
 * **Validity Logic**: Reports older than 2 hours should be visually dimmed or hidden to prevent confusion.
 
 ### 2.3 Identity & Access Management (IAM)
-* **Access Control**: Strict whitelist for NTU email domains.
-    * Students: Ends with `@e.ntu.edu.sg`
-    * Staff: Ends with `@ntu.edu.sg`
-* **Verification Method**: SMTP Email verification. User receives a link with a signed token. No password-only accounts allowed without verification.
+* **Access Control**: Open registration for any valid email address.
+* **Verification Method**: SMTP Email verification. User receives a **6-digit verification code** (OTP). User must enter this code on the website to verify their account. The account is not active until verified. No password-only accounts allowed.
 
 ### 2.4 Social Network
 * **Community Feed**: Reverse chronological order. Support for text and images.
 * **Privacy**:
-    * **Guest (Unverified)**: Can ONLY view Weather/Status and Community Live Reports.
+    * **Guest (Unverified)**: Can ONLY view Weather/Status and manually Report.
     * **User (Verified)**: Can view/post content and Report Status. Visibility options: "Public" or "Friends Only."
 
 ### 2.5 Extended Features

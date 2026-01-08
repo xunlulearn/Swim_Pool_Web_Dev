@@ -35,14 +35,19 @@
             <div class="flex justify-between h-16">
                 <div class="flex items-center">
                     <a href="{{ url_for('index') }}" class="flex-shrink-0 flex items-center gap-2">
-                        <!-- NTU Logo Placeholder / Icon -->
-                        <div class="w-8 h-8 bg-ntu-red rounded-lg flex items-center justify-center text-white font-bold">N</div>
+                        <!-- NTU Logo -->
+                        <img src="{{ url_for('static', filename='img/logo.png') }}" alt="NTU Pool Logo" class="w-10 h-10 rounded-lg">
                         <span class="font-bold text-xl tracking-tight text-slate-800">NTU Pool</span>
                     </a>
                 </div>
                 <div class="flex items-center gap-4">
+                    <a href="{{ url_for('index') }}" class="text-slate-600 hover:text-ntu-blue font-medium transition">Home</a>
+                    <a href="{{ url_for('social.feed') }}" class="text-slate-600 hover:text-ntu-blue font-medium transition">Community</a>
                     {% if current_user and current_user.is_authenticated %}
-                        <a href="{{ url_for('social.feed') }}" class="text-slate-600 hover:text-ntu-blue font-medium transition">Community</a>
+                        <a href="{{ url_for('social.profile') }}" class="text-slate-600 hover:text-ntu-blue font-medium transition">Profile</a>
+                        {% if current_user.is_admin() %}
+                        <a href="{{ url_for('social.admin_reports') }}" class="text-purple-600 hover:text-purple-800 font-medium transition">Admin</a>
+                        {% endif %}
                         <a href="{{ url_for('auth.logout') }}" class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition">Logout</a>
                     {% else %}
                         <a href="{{ url_for('auth.login') }}" class="text-sm font-medium text-ntu-blue hover:text-blue-800 transition">Login</a>

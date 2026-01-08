@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Post | NTU Pool{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+    <!-- Back Link -->
+    <a href="{{ url_for('social.post_detail', post_id=post.id) }}" class="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-ntu-blue transition mb-6">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+        </svg>
+        Back to Post
+    </a>
+
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <h1 class="text-xl font-bold text-slate-800 mb-6">Edit Post</h1>
+
+        <form action="{{ url_for('social.edit_post', post_id=post.id) }}" method="POST" class="space-y-5">
+            <!-- Title -->
+            <div>
+                <label for="title" class="block text-sm font-medium text-slate-700 mb-1">Title</label>
+                <input type="text" id="title" name="title" required maxlength="200" value="{{ post.title }}"
+                       class="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-ntu-blue focus:border-ntu-blue">
+            </div>
+
+            <!-- Category -->
+            <div>
+                <label for="category" class="block text-sm font-medium text-slate-700 mb-1">Category</label>
+                <select id="category" name="category"
+                        class="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-ntu-blue focus:border-ntu-blue bg-white">
+                    <option value="general" {% if post.category == 'general' %}selected{% endif %}>💬 General Discussion</option>
+                    <option value="squad" {% if post.category == 'squad' %}selected{% endif %}>🏊 Find Buddy</option>
+                    <option value="lostfound" {% if post.category == 'lostfound' %}selected{% endif %}>🔍 Lost & Found</option>
+                    <option value="tutorial" {% if post.category == 'tutorial' %}selected{% endif %}>📚 Swimming Tutorials</option>
+                </select>
+            </div>
+
+            <!-- Body -->
+            <div>
+                <label for="body" class="block text-sm font-medium text-slate-700 mb-1">Content</label>
+                <textarea id="body" name="body" rows="8" required
+                          class="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-ntu-blue focus:border-ntu-blue resize-none">{{ post.body }}</textarea>
+            </div>
+
+            <!-- Submit -->
+            <div class="flex justify-end gap-3 pt-4 border-t border-gray-100">
+                <a href="{{ url_for('social.post_detail', post_id=post.id) }}" class="px-6 py-2.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 transition">
+                    Cancel
+                </a>
+                <button type="submit" class="bg-ntu-blue text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-800 transition">
+                    Save Changes
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
