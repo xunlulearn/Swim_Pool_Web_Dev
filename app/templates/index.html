@@ -41,6 +41,43 @@
                 </div>
             </div>
 
+            <!-- Community Live Feeder -->
+            <div class="w-full max-w-md bg-white/80 rounded-xl p-4 border border-gray-100 mb-6 backdrop-blur-md">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+                        👥 Community Live
+                        <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                    </h3>
+                    
+                    <div class="relative">
+                        {% if current_user.is_authenticated and current_user.is_verified %}
+                        <button id="report-status-btn" class="text-xs bg-ntu-blue text-white px-3 py-1.5 rounded-full hover:bg-blue-800 transition shadow-sm font-medium">
+                            + Report
+                        </button>
+                        <!-- Dropdown -->
+                        <div id="report-options" class="hidden absolute right-0 mt-2 w-32 bg-white rounded-lg shadow-lg border border-gray-100 z-10 overflow-hidden">
+                            <button data-status="Open" class="submit-report-action w-full text-left px-4 py-2 text-sm text-green-700 hover:bg-green-50 flex items-center gap-2">
+                                🟢 Open
+                            </button>
+                            <button data-status="Closed" class="submit-report-action w-full text-left px-4 py-2 text-sm text-red-700 hover:bg-red-50 flex items-center gap-2">
+                                🔴 Closed
+                            </button>
+                        </div>
+                        {% else %}
+                        <span class="text-[10px] text-gray-400">Login to report</span>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <div id="live-feed-list" class="space-y-2 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
+                    <!-- JS fills this -->
+                    <div class="animate-pulse space-y-2">
+                         <div class="h-8 bg-gray-100 rounded"></div>
+                         <div class="h-8 bg-gray-100 rounded"></div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Timestamp & Disclaimer -->
             <div class="text-center space-y-1">
                 <p class="text-xs text-gray-400 font-mono">Last Updated: <span id="last-updated">--:--:--</span></p>
@@ -85,4 +122,5 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/weather.js') }}"></script>
+<script src="{{ url_for('static', filename='js/live_status.js') }}"></script>
 {% endblock %}

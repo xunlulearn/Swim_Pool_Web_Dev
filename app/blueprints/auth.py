@@ -4,20 +4,32 @@ from app.models.user import User
 from app.extensions import db, mail
 from flask_mail import Message
 import re
+import random
+import string
+from datetime import datetime, timedelta
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
 
-def is_ntu_email(email):
-    pattern = r'^[a-zA-Z0-9._%+-]+@(?:e\.)?ntu\.edu\.sg$'
+def is_valid_email(email):
+    """Validate email format (accepts any valid email address)."""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return re.match(pattern, email) is not None
 
+def generate_otp():
+    """Generate a 6-digit OTP."""
+    return ''.join(random.choices(string.digits, k=6))
+
 def send_verification_email(user):
-    token = user.generate_auth_token()
-    confirm_url = url_for('auth.confirm_email', token=token, _external=True)
-    msg = Message('Verify Your NTU Pool Account',
+    # Determine OTP
+    otp = generate_otp()
+    user.otp_code = otp
+    user.otp_expiry = datetime.utcnow() + timedelta(minutes=10)
+    db.session.commit()
+
+    msg = Message('Your NTU Pool Verification Code',
                   sender=current_app.config['MAIL_USERNAME'],
                   recipients=[user.email])
-    msg.body = f'Welcome! Please click the link to verify your account: {confirm_url}'
+    msg.body = f'Your verification code is: {otp}\n\nThis code expires in 10 minutes.'
     # In production, use a proper HTML template
     try:
         mail.send(msg)
@@ -36,8 +48,8 @@ def register():
         password = request.form.get('password')
         confirm = request.form.get('password_confirm')
 
-        if not is_ntu_email(email):
-            flash('Please use a valid NTU email (@ntu.edu.sg or @e.ntu.edu.sg)', 'error')
+        if not is_valid_email(email):
+            flash('Please enter a valid email address.', 'error')
             return redirect(url_for('auth.register'))
 
         if password != confirm:
@@ -57,12 +69,12 @@ def register():
         db.session.add(user)
         db.session.commit()
 
-        # Send verification (mock for now if no SMTP)
-        # send_verification_email(user) 
+        # Send OTP
+        send_verification_email(user)
         
-        flash('Account created! Please check your email to verify.', 'success')
+        flash('Account created! Please enter the verification code sent to your email.', 'success')
         login_user(user) # Auto login but restricted
-        return redirect(url_for('auth.unverified'))
+        return redirect(url_for('auth.verify_otp'))
 
     return render_template('auth/register.html')
 
@@ -78,6 +90,9 @@ def login():
 
         if user and user.verify_password(password):
             login_user(user)
+            if not user.is_verified:
+                flash('Please verify your account to continue.', 'warning')
+                return redirect(url_for('auth.verify_otp'))
             return redirect(url_for('index'))
         
         flash('Invalid email or password.', 'error')
@@ -91,37 +106,54 @@ def logout():
     flash('You have been logged out.', 'success')
     return redirect(url_for('index'))
 
-@auth_bp.route('/unverified')
+@auth_bp.route('/verify', methods=['GET', 'POST'])
 @login_required
-def unverified():
-    if current_user.is_verified:
-        return redirect(url_for('index'))
-    return render_template('auth/unverified.html')
-
-@auth_bp.route('/confirm/<token>')
-@login_required
-def confirm_email(token):
+def verify_otp():
     if current_user.is_verified:
         return redirect(url_for('index'))
     
-    # In a real scenario, we verify the token matches the current user
-    # simplified logic:
-    user = User.verify_auth_token(token)
-    if user and user.id == current_user.id:
-        current_user.is_verified = True
-        db.session.commit()
-        flash('Account verified! Welcome to the community.', 'success')
-    else:
-        flash('The confirmation link is invalid or has expired.', 'error')
+    if request.method == 'POST':
+        code = request.form.get('otp_code')
         
-    return redirect(url_for('index'))
+        if not current_user.otp_code or not current_user.otp_expiry:
+             flash('No active verification code. Please request a new one.', 'error')
+             return redirect(url_for('auth.verify_otp'))
+
+        if datetime.utcnow() > current_user.otp_expiry:
+            flash('Verification code has expired.', 'error')
+            return redirect(url_for('auth.verify_otp'))
+            
+        if code == current_user.otp_code:
+            current_user.is_verified = True
+            current_user.otp_code = None
+            current_user.otp_expiry = None
+            db.session.commit()
+            flash('Account verified! Welcome to the community.', 'success')
+            return redirect(url_for('index'))
+        else:
+             flash('Invalid verification code. Please try again.', 'error')
+
+    return render_template('auth/verify_otp.html')
 
 @auth_bp.route('/resend')
 @login_required
 def resend_confirmation():
-    # send_verification_email(current_user)
-    flash('Verification email resent.', 'success')
-    return redirect(url_for('auth.unverified'))
+    if current_user.is_verified:
+        return redirect(url_for('index'))
+        
+    send_verification_email(current_user)
+    flash('A new verification code has been sent to your email.', 'success')
+    return redirect(url_for('auth.verify_otp'))
+
+# Deprecated/Legacy routes (keeping placeholders to avoid 404s if linked elsewhere or clean up)
+@auth_bp.route('/unverified')
+def unverified():
+    return redirect(url_for('auth.verify_otp'))
+
+@auth_bp.route('/confirm/<token>')
+def confirm_email(token):
+    flash('The link verification system has been deprecated. Please login and use OTP.', 'info')
+    return redirect(url_for('auth.login'))
 
 
 

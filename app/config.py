@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()  # Must be called before reading env vars
+
 import os
 
 class Config:

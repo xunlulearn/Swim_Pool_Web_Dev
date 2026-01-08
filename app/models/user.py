@@ -23,6 +23,10 @@ class User(UserMixin, TimestampMixin, db.Model):
     is_verified = db.Column(db.Boolean, default=False)
     avatar_url = db.Column(db.String(255))
     
+    # OTP Fields
+    otp_code = db.Column(db.String(6))
+    otp_expiry = db.Column(db.DateTime)
+    
     # Relationships
     posts = db.relationship('Post', backref='author', lazy='dynamic', cascade='all, delete-orphan')
     comments = db.relationship('Comment', backref='author', lazy='dynamic')

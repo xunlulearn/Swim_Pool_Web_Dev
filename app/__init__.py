@@ -24,6 +24,9 @@ def create_app(config_name='default'):
     from .blueprints.misc import misc_bp
     app.register_blueprint(misc_bp)
 
+    from .blueprints.live_status import live_status_bp
+    app.register_blueprint(live_status_bp)
+
     @app.route('/')
     def index():
         return render_template('index.html')

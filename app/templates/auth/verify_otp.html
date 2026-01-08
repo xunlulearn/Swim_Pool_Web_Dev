@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}Verify Account | NTU Pool{% endblock %}
+
+{% block content %}
+<div class="max-w-md mx-auto bg-white p-8 rounded-xl shadow-sm border border-gray-100 mt-10">
+    <div class="text-center mb-8">
+        <div class="mx-auto w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mb-4">
+            <svg class="w-6 h-6 text-ntu-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+            </svg>
+        </div>
+        <h2 class="text-2xl font-bold text-slate-800">Verify your Account</h2>
+        <p class="text-gray-500 text-sm mt-2">
+            We've sent a 6-digit code to <strong>{{ current_user.email }}</strong>. <br>
+            Please enter it below to verify your email.
+        </p>
+    </div>
+
+    <form method="POST" action="{{ url_for('auth.verify_otp') }}" class="space-y-6">
+        <div>
+            <label for="otp_code" class="block text-sm font-medium text-slate-700 text-center">Verification Code</label>
+            <input type="text" name="otp_code" id="otp_code" required maxlength="6" pattern="[0-9]{6}" placeholder="123456"
+                class="mt-2 block w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-center text-2xl tracking-widest font-mono shadow-sm 
+                       focus:outline-none focus:border-ntu-blue focus:ring-1 focus:ring-ntu-blue">
+            <p class="text-xs text-gray-400 text-center mt-2">Enter the 6 digits sent to your email</p>
+        </div>
+
+        <button type="submit" class="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-ntu-blue hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ntu-blue transition">
+            Verify Account
+        </button>
+    </form>
+
+    <div class="mt-6 text-center text-sm">
+        <span class="text-gray-500">Didn't receive the code?</span>
+        <a href="{{ url_for('auth.resend_confirmation') }}" class="font-medium text-ntu-blue hover:text-blue-800">
+            Resend Code
+        </a>
+    </div>
+</div>
+{% endblock %}
