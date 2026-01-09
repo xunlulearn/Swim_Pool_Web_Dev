@@ -40,8 +40,8 @@ To ensure data quality and community safety, features are restricted based on au
 
 ## 🛠️ Tech Stack
 * **Backend:** Python, Flask
-* **Database:** SQLite / SQLAlchemy
-* **External API:** NEA Weather API
+* **Database:** PostgreSQL
+* **External API:** NEA Weather API: [https://api-open.data.gov.sg/v2/real-time/api/weather?api=lightning](https://api-open.data.gov.sg/v2/real-time/api/weather?api=lightning)
 * **Frontend:** HTML/CSS (Mobile-First Design)
 
 ---
