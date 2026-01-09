@@ -5,18 +5,35 @@
 {% block content %}
 <div class="max-w-3xl mx-auto space-y-6">
     <!-- User Info Card -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-        <div class="flex items-center gap-4">
-            <div class="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold text-2xl">
-                {{ current_user.username[0] | upper }}
-            </div>
-            <div>
-                <h1 class="text-xl font-bold text-slate-800">{{ current_user.username }}</h1>
-                <p class="text-sm text-gray-400">{{ current_user.email }}</p>
-                {% if current_user.is_admin() %}
-                <span class="inline-block mt-1 px-2 py-0.5 bg-purple-100 text-purple-600 text-xs font-medium rounded">Admin</span>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 relative">
+        <div class="flex items-center gap-6">
+            <!-- Avatar -->
+            <div class="w-20 h-20 flex-shrink-0 bg-slate-100 rounded-full flex items-center justify-center overflow-hidden border-2 border-white shadow-sm">
+                {% if current_user.avatar %}
+                    <img src="data:{{ current_user.avatar_mimetype }};base64,{{ current_user.avatar | b64encode }}" alert="Avatar" class="w-full h-full object-cover">
+                {% else %}
+                    <span class="text-slate-400 font-bold text-3xl">{{ current_user.nickname[0] | upper if current_user.nickname else current_user.username[0] | upper }}</span>
                 {% endif %}
             </div>
+            
+            <!-- Info -->
+            <div class="flex-grow">
+                <h1 class="text-2xl font-bold text-slate-800">{{ current_user.nickname or current_user.username }}</h1>
+                <p class="text-sm text-gray-500">@{{ current_user.username }}</p>
+                
+                <div class="flex gap-2 mt-2">
+                    {% if current_user.is_admin() %}
+                    <span class="inline-block px-2 py-0.5 bg-purple-100 text-purple-600 text-xs font-medium rounded">Admin</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Edit Button -->
+            <a href="{{ url_for('social.edit_profile') }}" class="absolute top-6 right-6 p-2 text-gray-400 hover:text-ntu-blue transition" title="Edit Profile">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                </svg>
+            </a>
         </div>
     </div>
 

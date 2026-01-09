@@ -1,5 +1,6 @@
 from functools import wraps
 from flask import Blueprint, render_template, request, flash, redirect, url_for, jsonify, abort
+import base64
 from flask_login import login_required, current_user
 from app.models.content import Post, Comment
 from app.models.interaction import Like, Collection
@@ -359,6 +360,49 @@ def profile():
     return render_template('social/profile.html', 
                            my_posts=my_posts,
                            collected_posts=collected_posts)
+
+@social_bp.route('/profile/edit', methods=['GET', 'POST'])
+@login_required
+def edit_profile():
+    """Edit profile (nickname, avatar)"""
+    if request.method == 'POST':
+        nickname = request.form.get('nickname', '').strip()
+        avatar_file = request.files.get('avatar')
+        
+        # Update nickname
+        if nickname:
+            current_user.nickname = nickname
+            
+        # Handle Avatar Upload
+        if avatar_file and avatar_file.filename:
+            mimetype = avatar_file.mimetype
+            if mimetype not in ['image/jpeg', 'image/png']:
+                flash('Invalid image format. Only JPEG and PNG are allowed.', 'error')
+                return redirect(url_for('social.edit_profile'))
+                
+            # Check file size (seek to end, tell, seek back)
+            avatar_file.seek(0, 2)
+            size = avatar_file.tell()
+            avatar_file.seek(0)
+            
+            if size > 200 * 1024: # 200KB
+                flash('Image too large. Max size is 200KB.', 'error')
+                return redirect(url_for('social.edit_profile'))
+                
+            current_user.avatar = avatar_file.read()
+            current_user.avatar_mimetype = mimetype
+            
+        db.session.commit()
+        flash('Profile updated successfully!', 'success')
+        return redirect(url_for('social.profile'))
+        
+    return render_template('social/profile_edit.html')
+
+@social_bp.app_template_filter('b64encode')
+def b64encode_filter(data):
+    if not data:
+        return ''
+    return base64.b64encode(data).decode('utf-8')
 
 
 # ============== Admin: Report Management ==============

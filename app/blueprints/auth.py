@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
+from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app, session  # Added session
 from flask_login import login_user, logout_user, login_required, current_user
 from app.models.user import User
 from app.extensions import db, mail
@@ -66,6 +66,8 @@ def register():
 
         user = User(email=email, username=username)
         user.password = password
+        # Default nickname to username
+        user.nickname = username 
         db.session.add(user)
         db.session.commit()
 
@@ -77,6 +79,88 @@ def register():
         return redirect(url_for('auth.verify_otp'))
 
     return render_template('auth/register.html')
+
+def send_password_reset_email(user):
+    otp = generate_otp()
+    user.otp_code = otp
+    user.otp_expiry = datetime.utcnow() + timedelta(minutes=10)
+    db.session.commit()
+
+    msg = Message('Password Reset Request - NTU Pool',
+                  sender=current_app.config['MAIL_USERNAME'],
+                  recipients=[user.email])
+    msg.body = f'Your password reset code is: {otp}\n\nThis code expires in 10 minutes.\nIf you did not request this, please ignore this email.'
+    try:
+        mail.send(msg)
+    except Exception as e:
+        print(f"Email send error: {e}")
+        flash('Error sending email. Please try again later.', 'error')
+
+@auth_bp.route('/password/reset-request', methods=['GET', 'POST'])
+def reset_request():
+    if request.method == 'POST':
+        email = request.form.get('email').lower()
+        user = User.query.filter_by(email=email).first()
+        
+        if user:
+            send_password_reset_email(user)
+            session['reset_email'] = email
+            flash('If an account exists with that email, a verification code has been sent.', 'info')
+            return redirect(url_for('auth.reset_password'))
+        else:
+            flash('If an account exists with that email, a verification code has been sent.', 'info')
+            return redirect(url_for('auth.reset_password'))
+    
+    # Pre-fill email if logged in
+    email_value = current_user.email if current_user.is_authenticated else ''
+    return render_template('auth/reset_request.html', email_value=email_value)
+
+@auth_bp.route('/password/reset', methods=['GET', 'POST'])
+def reset_password():
+    email = session.get('reset_email')
+    
+    # If logged in and no session email, use current user
+    if not email and current_user.is_authenticated:
+        email = current_user.email
+    
+    if not email:
+        flash('Session expired. Please request password reset again.', 'warning')
+        return redirect(url_for('auth.reset_request'))
+        
+    if request.method == 'POST':
+        otp = request.form.get('otp')
+        password = request.form.get('password')
+        confirm = request.form.get('confirm')
+        
+        if password != confirm:
+            flash('Passwords do not match.', 'error')
+            return redirect(url_for('auth.reset_password'))
+            
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            # Should not happen if session logic is right verify logic
+            flash('Invalid request.', 'error')
+            return redirect(url_for('auth.reset_request'))
+            
+        if not user.otp_code or not user.otp_expiry or datetime.utcnow() > user.otp_expiry:
+            flash('Verification code expired or invalid.', 'error')
+            return redirect(url_for('auth.reset_request'))
+            
+        if user.otp_code != otp:
+            flash('Invalid verification code.', 'error')
+            return redirect(url_for('auth.reset_password'))
+            
+        # Success
+        user.password = password
+        user.otp_code = None
+        user.otp_expiry = None
+        db.session.commit()
+        
+        session.pop('reset_email', None)
+        flash('Your password has been updated! Please login.', 'success')
+        return redirect(url_for('auth.login'))
+        
+    return render_template('auth/reset_password.html')
 
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():

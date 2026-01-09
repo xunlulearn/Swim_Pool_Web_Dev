@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Profile | NTU Pool{% endblock %}
+
+{% block content %}
+<div class="max-w-xl mx-auto bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="p-6 border-b border-gray-100">
+        <h2 class="text-lg font-bold text-slate-800">Edit Profile</h2>
+        <p class="text-sm text-gray-500">Update your personal information</p>
+    </div>
+    
+    <form method="POST" enctype="multipart/form-data" class="p-6 space-y-6">
+        <!-- Avatar Upload -->
+        <div>
+            <label class="block text-sm font-medium text-slate-700 mb-2">Profile Picture</label>
+            <div class="flex items-center gap-6">
+                <!-- Preview -->
+                <div class="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center overflow-hidden border-2 border-gray-200">
+                    {% if current_user.avatar %}
+                        <img src="data:{{ current_user.avatar_mimetype }};base64,{{ current_user.avatar | b64encode }}" class="w-full h-full object-cover">
+                    {% else %}
+                        <span class="text-slate-400 font-bold text-2xl">{{ current_user.username[0] | upper }}</span>
+                    {% endif %}
+                </div>
+                
+                <!-- Input -->
+                <div class="flex-grow">
+                    <input type="file" name="avatar" accept="image/png, image/jpeg"
+                        class="block w-full text-sm text-slate-500
+                               file:mr-4 file:py-2 file:px-4
+                               file:rounded-full file:border-0
+                               file:text-sm file:font-semibold
+                               file:bg-blue-50 file:text-ntu-blue
+                               hover:file:bg-blue-100 transition">
+                    <p class="mt-1 text-xs text-gray-400">JPG or PNG. Max 200KB.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Nickname -->
+        <div>
+            <label for="nickname" class="block text-sm font-medium text-slate-700">Nickname</label>
+            <input type="text" name="nickname" id="nickname" value="{{ current_user.nickname }}"
+                class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-sm shadow-sm placeholder-gray-400
+                       focus:outline-none focus:border-ntu-blue focus:ring-1 focus:ring-ntu-blue">
+            <p class="mt-1 text-xs text-gray-400">Display name visible to other users.</p>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex items-center justify-between pt-4">
+            <a href="{{ url_for('auth.reset_request') }}" class="text-sm font-medium text-ntu-blue hover:text-blue-800">
+                Change Password
+            </a>
+            
+            <div class="flex gap-3">
+                <a href="{{ url_for('social.profile') }}" class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-slate-700 hover:bg-slate-50 transition">
+                    Cancel
+                </a>
+                <button type="submit" class="px-4 py-2 bg-ntu-blue text-white rounded-md text-sm font-medium hover:bg-blue-800 shadow-sm transition">
+                    Save Changes
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}

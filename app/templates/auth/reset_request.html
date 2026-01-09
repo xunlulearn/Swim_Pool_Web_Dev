@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}Reset Password | NTU Pool{% endblock %}
+
+{% block content %}
+<div class="max-w-md mx-auto bg-white p-8 rounded-xl shadow-sm border border-gray-100 mt-10">
+    <h2 class="text-2xl font-bold text-center text-slate-800 mb-6">Reset Password</h2>
+    <p class="text-sm text-gray-600 text-center mb-6">Enter your email address and we'll send you a verification code.</p>
+    
+    <form method="POST" action="{{ url_for('auth.reset_request') }}" class="space-y-4">
+        <div>
+            <label for="email" class="block text-sm font-medium text-slate-700">Email</label>
+            <input type="email" name="email" id="email" required placeholder="your@email.com" value="{{ email_value if email_value else '' }}"
+                class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-sm shadow-sm placeholder-gray-400
+                       focus:outline-none focus:border-ntu-blue focus:ring-1 focus:ring-ntu-blue">
+        </div>
+
+        <button type="submit" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-ntu-blue hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ntu-blue transition">
+            Send Verification Code
+        </button>
+    </form>
+
+    <div class="mt-6 text-center text-sm">
+        <p class="text-gray-500">Remember your password? <a href="{{ url_for('auth.login') }}" class="font-medium text-ntu-blue hover:text-blue-800">Sign In</a></p>
+    </div>
+</div>
+{% endblock %}

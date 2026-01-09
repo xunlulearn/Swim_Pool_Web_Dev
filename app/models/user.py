@@ -21,6 +21,11 @@ class User(UserMixin, TimestampMixin, db.Model):
     role = db.Column(db.String(20), default='user')  # 'user' | 'admin'
     is_banned = db.Column(db.Boolean, default=False)
     
+    # Profile Fields
+    nickname = db.Column(db.String(64), default='')
+    avatar = db.Column(db.LargeBinary) # BLOB storage for avatar image
+    avatar_mimetype = db.Column(db.String(32)) # e.g. 'image/jpeg'
+    
     # OTP Fields
     otp_code = db.Column(db.String(6))
     otp_expiry = db.Column(db.DateTime)

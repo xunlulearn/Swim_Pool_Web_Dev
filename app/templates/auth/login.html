@@ -20,6 +20,10 @@
                 class="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-sm shadow-sm placeholder-gray-400
                        focus:outline-none focus:border-ntu-blue focus:ring-1 focus:ring-ntu-blue">
         </div>
+        
+        <div class="flex items-center justify-end">
+            <a href="{{ url_for('auth.reset_request') }}" class="text-sm font-medium text-ntu-blue hover:text-blue-800">Forgot Password?</a>
+        </div>
 
         <button type="submit" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-ntu-blue hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-ntu-blue transition">
             Sign In
