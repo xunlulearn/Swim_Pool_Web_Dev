@@ -23,6 +23,18 @@ def check_banned(f):
     return decorated_function
 
 
+def verified_required(f):
+    """Require verified account for posting, commenting, etc."""
+    @wraps(f)
+    @login_required
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_verified:
+            flash('Please verify your email to access this feature.', 'warning')
+            return redirect(url_for('auth.verify_otp'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
 def admin_required(f):
     """Admin-only access"""
     @wraps(f)
@@ -86,7 +98,7 @@ def post_detail(post_id):
 # ============== Create Post ==============
 
 @social_bp.route('/post', methods=['GET', 'POST'])
-@login_required
+@verified_required
 @check_banned
 def create_post():
     """Create new post"""
@@ -117,7 +129,7 @@ def create_post():
 # ============== Edit Post ==============
 
 @social_bp.route('/post/<int:post_id>/edit', methods=['GET', 'POST'])
-@login_required
+@verified_required
 @check_banned
 def edit_post(post_id):
     """Edit post - author or admin only"""
@@ -143,7 +155,7 @@ def edit_post(post_id):
 # ============== Delete Post (Soft Delete) ==============
 
 @social_bp.route('/post/<int:post_id>/delete', methods=['POST'])
-@login_required
+@verified_required
 @check_banned
 def delete_post(post_id):
     """Soft delete post - author or admin only"""
@@ -165,7 +177,7 @@ def delete_post(post_id):
 # ============== Create Comment ==============
 
 @social_bp.route('/post/<int:post_id>/comment', methods=['POST'])
-@login_required
+@verified_required
 @check_banned
 def create_comment(post_id):
     """Create comment"""
@@ -191,7 +203,7 @@ def create_comment(post_id):
 # ============== Delete Comment (Soft Delete) ==============
 
 @social_bp.route('/comment/<int:comment_id>/delete', methods=['POST'])
-@login_required
+@verified_required
 @check_banned
 def delete_comment(comment_id):
     """Soft delete comment - author or admin only"""
@@ -213,7 +225,7 @@ def delete_comment(comment_id):
 # ============== Like/Unlike ==============
 
 @social_bp.route('/post/<int:post_id>/like', methods=['POST'])
-@login_required
+@verified_required
 @check_banned
 def toggle_like(post_id):
     """Like or unlike post"""
@@ -241,7 +253,7 @@ def toggle_like(post_id):
 # ============== Save/Unsave ==============
 
 @social_bp.route('/post/<int:post_id>/collect', methods=['POST'])
-@login_required
+@verified_required
 @check_banned
 def toggle_collect(post_id):
     """Save or unsave post"""
@@ -269,7 +281,7 @@ def toggle_collect(post_id):
 # ============== Report Post ==============
 
 @social_bp.route('/post/<int:post_id>/report', methods=['POST'])
-@login_required
+@verified_required
 @check_banned
 def report_post(post_id):
     """Report post"""
