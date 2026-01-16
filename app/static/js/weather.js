@@ -54,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ui.text.className = `font-black tracking-wider ${config.colorClass} transition-colors duration-500`;
             
             // 2. Update Message
-            ui.message.textContent = data.message;
+            ui.message.innerHTML = data.message;
             
             // 3. Update Metrics
             const details = data.details || {};
