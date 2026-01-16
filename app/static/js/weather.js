@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
         message: document.getElementById('status-message'),
         dist: document.getElementById('metric-distance'),
         count: document.getElementById('metric-count'),
+        rainfall: document.getElementById('metric-rainfall'),
         updated: document.getElementById('last-updated')
     };
 
@@ -57,11 +58,14 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // 3. Update Metrics
             const details = data.details || {};
-            const dist = details.min_distance_km;
+            // Handle different field names from backend versions
+            const dist = details.distance || details.lightning_dist || details.min_distance_km;
             const count = details.lightning_count;
+            const rain = details.rainfall_rate;
             
             ui.dist.textContent = (dist !== null && dist !== undefined) ? `${dist} km` : '> 15 km';
-            ui.count.textContent = (count !== null && count !== undefined) ? count : '0';
+            ui.count.textContent = (count !== null && count !== undefined) ? count : '--';
+            ui.rainfall.textContent = (rain !== null && rain !== undefined) ? `${rain.toFixed(1)} mm/h` : '-- mm/h';
             
             // 4. Update Visuals (Icon, Ring, Background)
             ui.ring.className = `flex items-center justify-center w-24 h-24 rounded-full ring-4 transition-all duration-500 ${config.ringClass}`;

@@ -6,7 +6,7 @@ from app.services.weather_engine import weather_engine
 
 @weather_bp.route('/status')
 def status():
-    state, message, details = weather_engine.get_lightning_status()
+    state, message, details = weather_engine.get_overall_status()
     
     return jsonify({
         "status": state.name, # "RED", "GREEN", "AMBER"
