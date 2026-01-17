@@ -30,11 +30,15 @@
 
             <!-- Author Info -->
             <div class="flex items-center gap-3">
-                <div class="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold">
-                    {{ post.author.username[0] | upper }}
+                <div class="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold overflow-hidden">
+                    {% if post.author.avatar %}
+                        <img src="data:{{ post.author.avatar_mimetype }};base64,{{ post.author.avatar | b64encode }}" alt="Avatar" class="w-full h-full object-cover">
+                    {% else %}
+                        {{ post.author.username[0] | upper }}
+                    {% endif %}
                 </div>
                 <div>
-                    <div class="font-medium text-slate-700">{{ post.author.username }}</div>
+                    <div class="font-medium text-slate-700">{{ post.author.nickname or post.author.username }}</div>
                     <div class="text-xs text-gray-400">
                         {{ post.created_at.strftime('%Y-%m-%d %H:%M') }}
                         · {{ post.view_count }} views
@@ -148,12 +152,16 @@
             {% for comment in comments %}
             <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
                 <div class="flex items-start gap-3">
-                    <div class="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold text-sm">
-                        {{ comment.author.username[0] | upper }}
+                    <div class="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold text-sm overflow-hidden">
+                        {% if comment.author.avatar %}
+                            <img src="data:{{ comment.author.avatar_mimetype }};base64,{{ comment.author.avatar | b64encode }}" alt="Avatar" class="w-full h-full object-cover">
+                        {% else %}
+                            {{ comment.author.username[0] | upper }}
+                        {% endif %}
                     </div>
                     <div class="flex-grow">
                         <div class="flex items-center gap-2">
-                            <span class="font-medium text-slate-700 text-sm">{{ comment.author.username }}</span>
+                            <span class="font-medium text-slate-700 text-sm">{{ comment.author.nickname or comment.author.username }}</span>
                             <span class="text-xs text-gray-400">{{ comment.created_at.strftime('%m-%d %H:%M') }}</span>
                         </div>
                         <p class="text-slate-600 text-sm mt-1">{{ comment.body }}</p>

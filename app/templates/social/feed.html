@@ -76,8 +76,12 @@
 
                 <div class="flex items-start gap-3">
                     <!-- Avatar -->
-                    <div class="w-10 h-10 bg-slate-100 rounded-full flex-shrink-0 flex items-center justify-center text-slate-600 font-bold">
-                        {{ post.author.username[0] | upper }}
+                    <div class="w-10 h-10 bg-slate-100 rounded-full flex-shrink-0 flex items-center justify-center text-slate-600 font-bold overflow-hidden">
+                        {% if post.author.avatar %}
+                            <img src="data:{{ post.author.avatar_mimetype }};base64,{{ post.author.avatar | b64encode }}" alt="Avatar" class="w-full h-full object-cover">
+                        {% else %}
+                            {{ post.author.username[0] | upper }}
+                        {% endif %}
                     </div>
                     
                     <div class="flex-grow min-w-0">
@@ -86,7 +90,7 @@
                         
                         <!-- Meta Info -->
                         <div class="flex items-center gap-2 text-xs text-gray-400 mt-1">
-                            <span>{{ post.author.username }}</span>
+                            <span>{{ post.author.nickname or post.author.username }}</span>
                             <span>·</span>
                             <span>{{ post.created_at.strftime('%m-%d %H:%M') }}</span>
                             {% if post.category != 'general' %}
