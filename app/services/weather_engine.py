@@ -166,7 +166,7 @@ class WeatherEngine:
             status = PoolStatus.GREEN if community_status == "Open" else PoolStatus.RED
             color_cn = "开放" if status == PoolStatus.GREEN else "关闭"
             color_en = "OPEN" if status == PoolStatus.GREEN else "CLOSED"
-            return status, f"社区汇报: 游泳池{color_cn}<br>Community Report: Pool {color_en}", {
+            return status, f"手动汇报: 游泳池{color_cn}<br>Manually Reported: Pool {color_en}", {
                 **base_metrics,
                 "reason": "community_consensus", 
                 "reported_status": community_status
@@ -182,10 +182,13 @@ class WeatherEngine:
             if time_since_alert <= 30:
                 # 在30分钟警告期内
                 remaining = 30 - int(time_since_alert)
-                msg_suffix_cn = f" (持续30分钟, 剩余{remaining}分)" if not has_lightning else ""
-                msg_suffix_en = f" (30min persistence, {remaining}m left)" if not has_lightning else ""
-                warning_dist = l_dist if has_lightning else "历史"
-                return PoolStatus.RED, f"游泳池因雷电预警关闭 (最近 {warning_dist}km){msg_suffix_cn}<br>Pool Closed due to Lightning Risk (Nearest {warning_dist}km){msg_suffix_en}", {
+                if has_lightning:
+                    msg_cn = f"游泳池因雷电预警关闭 (最近 {l_dist}km)"
+                    msg_en = f"Pool Closed due to Lightning Alert (Nearest {l_dist}km)"
+                else:
+                    msg_cn = f"游泳池因雷电预警关闭 (预计剩余{remaining}分钟开放)"
+                    msg_en = f"Pool Closed due to Lightning Alert (Estimated {remaining} min to reopen)"
+                return PoolStatus.RED, f"{msg_cn}<br>{msg_en}", {
                     **base_metrics,
                     "reason": "lightning",
                     "distance": l_dist,
@@ -205,10 +208,13 @@ class WeatherEngine:
             time_since_alert = (now - self.last_rain_alert_time).total_seconds() / 60
             if time_since_alert <= 30:
                 remaining = 30 - int(time_since_alert)
-                msg_suffix_cn = f" (持续30分钟, 剩余{remaining}分)" if not has_heavy_rain else ""
-                msg_suffix_en = f" (30min persistence, {remaining}m left)" if not has_heavy_rain else ""
-                current_rate = f"{r_rate:.1f}mm/h" if has_heavy_rain else "历史"
-                return PoolStatus.RED, f"游泳池因大雨关闭 ({current_rate}){msg_suffix_cn}<br>Pool Closed due to Heavy Rain ({current_rate}){msg_suffix_en}", {
+                if has_heavy_rain:
+                    msg_cn = f"游泳池因大雨关闭 ({r_rate:.1f}mm/h)"
+                    msg_en = f"Pool Closed due to Heavy Rain ({r_rate:.1f}mm/h)"
+                else:
+                    msg_cn = f"游泳池因大雨关闭 (预计剩余{remaining}分钟开放)"
+                    msg_en = f"Pool Closed due to Heavy Rain (Estimated {remaining} min to reopen)"
+                return PoolStatus.RED, f"{msg_cn}<br>{msg_en}", {
                     **base_metrics,
                     "reason": "heavy_rain", 
                     "rainfall_rate": r_rate,
@@ -218,7 +224,7 @@ class WeatherEngine:
                 self.last_rain_alert_time = None
 
         # 5. 默认开放
-        return PoolStatus.GREEN, "游泳池正在开放<br>Pool is Likely Open", base_metrics
+        return PoolStatus.GREEN, "游泳池正在开放<br>Pool is Open", base_metrics
 
     @staticmethod
     def haversine(lat1, lon1, lat2, lon2):
@@ -310,16 +316,13 @@ class WeatherEngine:
                         # 跳过无效坐标
                         continue
             
-            # 状态机逻辑
-            if min_distance <= self.LIGHTNING_CLOSE_THRESHOLD:
+            # 状态机逻辑: 15km内闪电即关闭，无AMBER状态
+            if min_distance <= self.LIGHTNING_WARN_THRESHOLD:
                 status = PoolStatus.RED
-                message = f"检测到近距离闪电 ({min_distance:.1f}km) - 游泳池关闭<br>Close-range Lightning Detected ({min_distance:.1f}km) - Pool Closed"
-            elif min_distance <= self.LIGHTNING_WARN_THRESHOLD:
-                status = PoolStatus.AMBER
-                message = f"检测到附近闪电 ({min_distance:.1f}km) - 天气转差<br>Lightning Nearby ({min_distance:.1f}km) - Weather Turning Bad"
+                message = f"检测到附近闪电 ({min_distance:.1f}km) - 游泳池关闭<br>Lightning Detected Nearby ({min_distance:.1f}km) - Pool Closed"
             else:
                 status = PoolStatus.GREEN
-                message = "附近无闪电活动 - 游泳池开放<br>No Lightning Nearby - Pool Likely Open"
+                message = "附近无闪电活动 - 游泳池开放<br>No Lightning Nearby - Pool is Open"
 
             details = {
                 "min_distance_km": round(min_distance, 2) if min_distance != float('inf') else None,
