@@ -40,7 +40,7 @@
                 <div>
                     <div class="font-medium text-slate-700">{{ post.author.nickname or post.author.username }}</div>
                     <div class="text-xs text-gray-400">
-                        {{ post.created_at.strftime('%Y-%m-%d %H:%M') }}
+                        {{ (post.created_at | sgt).strftime('%Y-%m-%d %H:%M') }}
                         · {{ post.view_count }} views
                         {% if post.category != 'general' %}
                         · <span class="px-1.5 py-0.5 bg-slate-100 rounded">
@@ -162,7 +162,7 @@
                     <div class="flex-grow">
                         <div class="flex items-center gap-2">
                             <span class="font-medium text-slate-700 text-sm">{{ comment.author.nickname or comment.author.username }}</span>
-                            <span class="text-xs text-gray-400">{{ comment.created_at.strftime('%m-%d %H:%M') }}</span>
+                            <span class="text-xs text-gray-400">{{ (comment.created_at | sgt).strftime('%m-%d %H:%M') }}</span>
                         </div>
                         <p class="text-slate-600 text-sm mt-1">{{ comment.body }}</p>
                     </div>

@@ -58,7 +58,7 @@
                             {% if report.status == 'pending' %}Pending{% elif report.status == 'resolved' %}Resolved{% else %}Rejected{% endif %}
                         </span>
                     </td>
-                    <td class="px-4 py-3 text-sm text-gray-400">{{ report.created_at.strftime('%m-%d %H:%M') }}</td>
+                    <td class="px-4 py-3 text-sm text-gray-400">{{ (report.created_at | sgt).strftime('%m-%d %H:%M') }}</td>
                     <td class="px-4 py-3">
                         {% if report.status == 'pending' %}
                         <div class="flex gap-2">

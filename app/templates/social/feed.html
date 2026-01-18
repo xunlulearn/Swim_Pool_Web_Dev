@@ -92,7 +92,7 @@
                         <div class="flex items-center gap-2 text-xs text-gray-400 mt-1">
                             <span>{{ post.author.nickname or post.author.username }}</span>
                             <span>·</span>
-                            <span>{{ post.created_at.strftime('%m-%d %H:%M') }}</span>
+                            <span>{{ (post.created_at | sgt).strftime('%m-%d %H:%M') }}</span>
                             {% if post.category != 'general' %}
                             <span>·</span>
                             <span class="px-1.5 py-0.5 bg-slate-100 rounded text-slate-500">

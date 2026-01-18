@@ -380,15 +380,6 @@ def edit_profile():
                 flash('Invalid image format. Only JPEG and PNG are allowed.', 'error')
                 return redirect(url_for('social.edit_profile'))
                 
-            # Check file size (seek to end, tell, seek back)
-            avatar_file.seek(0, 2)
-            size = avatar_file.tell()
-            avatar_file.seek(0)
-            
-            if size > 200 * 1024: # 200KB
-                flash('Image too large. Max size is 200KB.', 'error')
-                return redirect(url_for('social.edit_profile'))
-                
             current_user.avatar = avatar_file.read()
             current_user.avatar_mimetype = mimetype
             

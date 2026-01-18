@@ -56,7 +56,7 @@
             <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition">
                 <h3 class="font-medium text-slate-800">{{ post.title }}</h3>
                 <div class="flex items-center gap-3 mt-2 text-xs text-gray-400">
-                    <span>{{ post.created_at.strftime('%Y-%m-%d') }}</span>
+                    <span>{{ (post.created_at | sgt).strftime('%Y-%m-%d') }}</span>
                     <span>{{ post.likes.count() }} likes</span>
                     <span>{{ post.comments.filter_by(is_deleted=False).count() }} comments</span>
                     <span>{{ post.view_count }} views</span>
@@ -79,7 +79,7 @@
                 <h3 class="font-medium text-slate-800">{{ post.title }}</h3>
                 <div class="flex items-center gap-3 mt-2 text-xs text-gray-400">
                     <span>By {{ post.author.username }}</span>
-                    <span>{{ post.created_at.strftime('%Y-%m-%d') }}</span>
+                    <span>{{ (post.created_at | sgt).strftime('%Y-%m-%d') }}</span>
                 </div>
             </div>
         </a>
