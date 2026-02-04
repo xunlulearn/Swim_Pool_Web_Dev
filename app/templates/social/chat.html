@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}Chat with {{ other_user.nickname or other_user.username }} | NTU Pool{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto flex flex-col h-[calc(100vh-8rem)]">
+    <!-- Header -->
+    <div class="bg-white rounded-t-xl shadow-sm border border-gray-100 p-4 flex items-center gap-3">
+        <a href="{{ url_for('social.messages_list') }}" class="text-gray-400 hover:text-ntu-blue transition">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+            </svg>
+        </a>
+        <div class="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold overflow-hidden">
+            {% if other_user.avatar %}
+                <img src="data:{{ other_user.avatar_mimetype }};base64,{{ other_user.avatar | b64encode }}" alt="Avatar" class="w-full h-full object-cover">
+            {% else %}
+                {{ other_user.username[0] | upper }}
+            {% endif %}
+        </div>
+        <span class="font-medium text-slate-700">{{ other_user.nickname or other_user.username }}</span>
+    </div>
+
+    <!-- Messages -->
+    <div class="flex-grow bg-slate-50 border-x border-gray-100 p-4 overflow-y-auto space-y-3" id="messages-container">
+        {% if messages %}
+            {% for msg in messages %}
+            <div class="flex {% if msg.sender_id == current_user.id %}justify-end{% else %}justify-start{% endif %}">
+                <div class="max-w-[75%] {% if msg.sender_id == current_user.id %}bg-ntu-blue text-white{% else %}bg-white text-slate-700{% endif %} px-4 py-2 rounded-2xl shadow-sm">
+                    <p class="text-sm whitespace-pre-wrap">{{ msg.body }}</p>
+                    <p class="text-xs {% if msg.sender_id == current_user.id %}text-blue-200{% else %}text-gray-400{% endif %} mt-1 text-right">
+                        {{ (msg.created_at | sgt).strftime('%H:%M') }}
+                    </p>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="text-center text-gray-400 text-sm py-8">
+                Send a message to start the conversation!
+            </div>
+        {% endif %}
+    </div>
+
+    <!-- Input -->
+    <form action="{{ url_for('social.chat', user_id=other_user.id) }}" method="POST" 
+          class="bg-white rounded-b-xl shadow-sm border border-gray-100 p-4">
+        <div class="flex gap-2">
+            <input type="text" name="body" placeholder="Type a message..." required autofocus
+                   class="flex-grow border border-gray-200 rounded-full px-4 py-2 text-sm focus:ring-2 focus:ring-ntu-blue focus:border-transparent">
+            <button type="submit" class="bg-ntu-blue text-white px-5 py-2 rounded-full text-sm font-medium hover:bg-blue-800 transition">
+                Send
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+// Auto-scroll to bottom
+document.getElementById('messages-container').scrollTop = document.getElementById('messages-container').scrollHeight;
+</script>
+{% endblock %}

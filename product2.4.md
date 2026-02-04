@@ -3,12 +3,13 @@
 * **Community Feed**: Reverse chronological order. Support for text and images.
 
 # 游泳馆网站社交功能需求规范 (Social Features Specification)
+
 ## 1. 项目概述
-本模块旨在为游泳馆网站构建一套完整的社交社区系统。系统需支持用户交流（发帖、评论）、互动（点赞、收藏）以及管理员的内容监管。
+本模块旨在为游泳馆网站构建一套完整的社交社区系统。系统需支持用户交流（发帖、评论、私信）、互动（点赞、收藏）以及管理员的内容监管。
 
 ## 2. 用户角色定义 (User Roles)
 
-系统需在 `User` 模型中通过字段（如 `role_id` 或 `role_name`）区分以下三种角色：
+系统需在 `User` 模型中通过字段区分以下三种角色：
 
 1.  **游客 (Guest):** 未登录用户。
 2.  **普通用户 (User):** 已注册并登录的标准用户。
@@ -16,84 +17,213 @@
 
 ## 3. 权限矩阵 (Permission Matrix)
 
-| 功能模块 | 动作 (Action) | 游客 (Guest) | 普通用户 (User) | 管理员 (Admin) | 备注/逻辑 |
+| 功能模块 | 动作 (Action) | 游客 (Guest) | 普通用户 (User) | 管理员 (Admin) | 备注 |
 | :--- | :--- | :---: | :---: | :---: | :--- |
-| **浏览** | 查看帖子列表 | ✅ | ✅ | ✅ | |
-| | 查看帖子详情 | ✅ | ✅ | ✅ | 包含评论区可见 |
-| | 搜索帖子 | ✅ | ✅ | ✅ | |
-| **内容创作** | 发布帖子 (Post) | ❌ | ✅ | ✅ | 管理员通常发布公告 |
-| | 发布评论 (Comment) | ❌ | ✅ | ✅ | |
-| **编辑/修改** | 编辑帖子/评论 | ❌ | ✅ (仅限本人) | ✅ (任意) | |
-| **删除** | 删除帖子/评论 | ❌ | ✅ (仅限本人) | ✅ (任意) | **必须执行软删除 (Soft Delete)** |
-| **互动** | 点赞 (Like) | ❌ | ✅ | ✅ | 需防重复点赞 |
-| | 收藏 (Save/Bookmark)| ❌ | ✅ | ✅ | |
-| **管理/风控** | 置顶帖子 (Pin) | ❌ | ❌ | ✅ | |
-| | 举报内容 (Report) | ❌ | ✅ | ✅ | |
-| | 封禁用户 (Ban) | ❌ | ❌ | ✅ | 禁止用户登录或发帖 |
-| | 查看举报列表 | ❌ | ❌ | ✅ | |
+| **浏览** | 查看帖子列表/详情 | ✅ | ✅ | ✅ | |
+| **内容创作** | 发布帖子 | ❌ | ✅ | ✅ | |
+| | 发布评论 | ❌ | ✅ | ✅ | |
+| | **回复评论 (楼中楼)** | ❌ | ✅ | ✅ | |
+| **编辑/删除** | 编辑帖子/评论 | ❌ | ✅ (本人) | ✅ (任意) | |
+| | 删除帖子/评论 | ❌ | ✅ (本人) | ✅ (任意) | **软删除** |
+| **互动** | 点赞/收藏 | ❌ | ✅ | ✅ | 防重复 |
+| **私信** | 查看会话列表 | ❌ | ✅ | ✅ | |
+| | 发送私信 | ❌ | ✅ | ✅ | |
+| | 查看聊天记录 | ❌ | ✅ (本人会话) | ✅ (本人会话) | |
+| **管理** | 置顶帖子 | ❌ | ❌ | ✅ | |
+| | 举报内容 | ❌ | ✅ | ✅ | |
+| | 封禁用户 | ❌ | ❌ | ✅ | |
 
-## 4. 数据库模型需求 (Schema Requirements)
+---
 
-请根据以下关键字段要求更新或创建 Data Model (ORM)：
+## 4. 数据库模型 (Schema)
 
-### A. 用户表 (User) 扩充
-* `role`: 枚举或整数，区分 User/Admin。
-* `is_banned`: 布尔值，默认为 False。如果为 True，该用户的所有 POST 请求应被拦截。
-* `nickname`: 字符串，用户昵称 (默认为邮箱前缀或随机生成)。
-* `avatar`: 二进制数据 (BLOB)，直接存储图片文件 (支持 JPEG/PNG, 建议压缩至 200KB 以内)。
-* `avatar_mimetype`: 字符串，记录图片类型 (如 image/jpeg)。
+### A. 用户表 (User)
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | Integer, PK | |
+| `email` | String(120), unique | |
+| `username` | String(64), unique | |
+| `password_hash` | String(255) | |
+| `is_verified` | Boolean | 邮箱验证状态 |
+| `role` | String(20) | `'user'` \| `'admin'` |
+| `is_banned` | Boolean | 封禁状态 |
+| `nickname` | String(64) | 用户昵称 |
+| `avatar` | LargeBinary | BLOB 存储头像 |
+| `avatar_mimetype` | String(32) | 如 `image/jpeg` |
+| `otp_code` | String(6) | OTP 验证码 |
+| `otp_expiry` | DateTime | OTP 过期时间 |
+
+**关系**: `posts`, `comments`, `likes`, `collections`, `content_reports`
+
+---
 
 ### B. 帖子表 (Post)
-* `author_id`: 外键，关联 User。
-* `title`: 字符串。
-* `body`: 文本（支持 Markdown 或富文本）。
-* `is_pinned`: 布尔值，默认为 False（仅管理员可改）。
-* `is_deleted`: 布尔值，默认为 False（软删除标记）。
-* `view_count`: 整数，浏览量计数。
-* `created_at` / `updated_at`: 时间戳。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | Integer, PK | |
+| `title` | String(200) | |
+| `body` | Text | |
+| `image_url` | String(255) | 可选图片 |
+| `category` | String(20) | `general`/`squad`/`lostfound`/`tutorial` |
+| `is_pinned` | Boolean | 置顶标记 |
+| `is_deleted` | Boolean | 软删除标记 |
+| `view_count` | Integer | 浏览量 |
+| `author_id` | FK → User | |
+| `created_at` / `updated_at` | DateTime | |
+
+**关系**: `comments`, `likes`, `collections`
+
+---
 
 ### C. 评论表 (Comment)
-* `post_id`: 外键，关联 Post。
-* `author_id`: 外键，关联 User。
-* `body`: 文本。
-* `is_deleted`: 布尔值，默认为 False。
 
-### D. 互动表 (Interaction/Like/Save)
-* *建议*: 创建多对多关系表或独立的 `Like` 和 `Collection` 表，记录 `user_id` 和 `post_id`，防止重复操作。
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | Integer, PK | |
+| `body` | Text | |
+| `is_deleted` | Boolean | 软删除标记 |
+| `author_id` | FK → User | |
+| `post_id` | FK → Post | |
+| `parent_id` | FK → Comment (可空) | **楼中楼**: 顶级评论为 NULL |
+| `reply_to_user_id` | FK → User (可空) | **楼中楼**: 被回复用户 ID |
+| `created_at` / `updated_at` | DateTime | |
 
-### E. 举报表 (Report) - *新增*
-* `reporter_id`: 发起举报的用户 ID。
-* `target_id`: 被举报的帖子或评论 ID。
-* `reason`: 字符串（如：广告、辱骂、无关内容）。
-* `status`: 枚举（Pending/Resolved/Rejected）。
+---
 
-## 5. 业务逻辑与约束 (Business Logic)
+### D. 互动表
 
-### 5.1 软删除机制 (Soft Delete)
-* 当用户或管理员执行“删除”操作时，**严禁**执行 SQL `DELETE`。
-* **操作**: 必须将目标记录的 `is_deleted` 字段更新为 `True`。
-* **查询**: 所有前端可见的查询接口（Get Posts, Get Comments）必须默认过滤掉 `is_deleted=True` 的记录。
+**Like 表**:
+| 字段 | 类型 |
+|------|------|
+| `id` | Integer, PK |
+| `user_id` | FK → User |
+| `post_id` | FK → Post |
+| `created_at` | DateTime |
+| **UNIQUE** | (`user_id`, `post_id`) |
 
-### 5.2 个人中心逻辑
-* 用户可以在“个人中心”查看自己发布的帖子历史。
-* 用户可以在“个人中心”查看自己“收藏”的帖子列表。
-* **资料/安全设置**:
-    * 用户可在此页面修改昵称和头像。
-    * 用户可在此页面发起修改密码流程 (需 OTP 验证)。
+**Collection 表**: 同上结构
+
+---
+
+### E. 举报表 (ContentReport)
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | Integer, PK | |
+| `reporter_id` | FK → User | |
+| `target_type` | String(20) | `'post'` \| `'comment'` |
+| `target_id` | Integer | |
+| `reason` | String(100) | 广告/辱骂/无关等 |
+| `status` | String(20) | `pending`/`resolved`/`rejected` |
+| `created_at` | DateTime | |
+
+---
+
+### F. 私信表 (PrivateMessage) - 待实现
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | Integer, PK | |
+| `sender_id` | FK → User | 发送者 |
+| `receiver_id` | FK → User | 接收者 |
+| `body` | Text | 消息内容 |
+| `is_read` | Boolean | 已读标记 |
+| `created_at` | DateTime | |
+
+---
+
+## 5. 业务逻辑
+
+### 5.1 软删除
+- **严禁** SQL `DELETE`，必须设置 `is_deleted = True`
+- 所有查询默认过滤 `is_deleted=True` 的记录
+
+### 5.2 个人中心
+- 查看我的帖子、收藏列表
+- **查看私信会话列表** (点击进入与某用户的聊天详情)
+- 修改昵称和头像
+- 发起密码修改 (需 OTP 验证)
 
 ### 5.3 管理员特权
-* 管理员在前端应看到额外的操作按钮：【置顶】、【直接删除】、【封禁该作者】。
-* 管理员应有一个专门的 Dashboard 页面查看 `Report` 表中的数据。
+- 操作按钮: 置顶、删除任意帖子、封禁作者
+- Dashboard 查看举报列表
 
-### 5.4 游泳馆特色分类 (可选建议)
-在 Post 模型中建议增加 `category` 字段，预设以下分类：
-* `General`: 一般讨论
-* `Squad`: 约游/找搭子
-* `LostFound`: 失物招领
-* `Tutorial`: 游泳教学/装备讨论
+### 5.4 分类
+预设: `General` (一般) / `Squad` (约游) / `LostFound` (失物) / `Tutorial` (教学)
 
-## 6. API 响应标准 (API Response)
+### 5.5 楼中楼回复 (Nested Comments) - 待实现
 
-* **401 Unauthorized**: 游客尝试进行需要登录的操作（如发帖）。
-* **403 Forbidden**: 普通用户尝试进行管理员操作（如置顶），或用户尝试删除非自己发布的帖子。
-* **200 OK**: 操作成功，需返回更新后的数据对象。
+**层级限制**: 最多 2 层
+- **顶级评论**: `parent_id = NULL`
+- **子评论**: `parent_id = 顶级评论ID`
+- 回复子评论时，`parent_id` 仍指向顶级评论，通过 `reply_to_user_id` 记录被回复用户
+
+**查询逻辑**:
+1. 查询所有顶级评论 (`parent_id IS NULL`)
+2. 对每条顶级评论查询子评论，按时间正序
+
+**删除逻辑**: 顶级评论删除后显示「该评论已删除」，子评论仍可见
+
+**前端展示**:
+- 子评论可折叠/展开
+- 回复按钮预填充 `@用户名`
+- 格式: `[用户A] 回复 [用户B]: 内容`
+
+### 5.6 私聊功能 (Direct Message) - 待实现
+
+**入口**:
+- 用户头像/用户名 → 资料卡片 → 「发消息」按钮
+- 个人中心 → 「消息」Tab
+
+**逻辑**:
+- 两用户间唯一会话
+- 被封禁用户无法发送私信
+- 接收方打开会话时标记所有消息已读
+- 导航栏显示未读消息 Badge
+
+**前端**:
+- 会话列表: 对方头像、昵称、最后消息摘要、时间、未读数
+- 聊天详情: 自己消息靠右，对方靠左
+
+---
+
+## 6. API 路由
+
+### 现有路由
+
+| 路由 | 方法 | 权限 | 描述 |
+|-----|------|------|------|
+| `/social/` | GET | All | 社区首页 |
+| `/social/post/<id>` | GET | All | 帖子详情 |
+| `/social/post` | POST | User/Admin | 发布帖子 |
+| `/social/post/<id>` | PUT | Owner/Admin | 编辑帖子 |
+| `/social/post/<id>` | DELETE | Owner/Admin | 软删除帖子 |
+| `/social/post/<id>/comment` | POST | User/Admin | 发布评论 |
+| `/social/comment/<id>` | DELETE | Owner/Admin | 软删除评论 |
+| `/social/post/<id>/like` | POST | User/Admin | 点赞/取消 |
+| `/social/post/<id>/collect` | POST | User/Admin | 收藏/取消 |
+| `/social/post/<id>/report` | POST | User/Admin | 举报帖子 |
+| `/social/post/<id>/pin` | POST | Admin | 置顶帖子 |
+| `/social/user/<id>/ban` | POST | Admin | 封禁用户 |
+| `/social/profile` | GET | User/Admin | 个人中心 |
+| `/social/admin/reports` | GET | Admin | 举报管理 |
+
+### 新增路由 (待实现)
+
+| 路由 | 方法 | 权限 | 描述 |
+|-----|------|------|------|
+| `/social/comment/<id>/reply` | POST | User/Admin | 回复评论 (楼中楼) |
+| `/social/messages/` | GET | User/Admin | 会话列表 |
+| `/social/messages/<user_id>` | GET | User/Admin | 聊天记录 |
+| `/social/messages/<user_id>` | POST | User/Admin | 发送私信 |
+| `/social/messages/unread_count` | GET | User/Admin | 未读消息数 |
+
+---
+
+## 7. API 响应标准
+
+- **401 Unauthorized**: 游客尝试需登录操作
+- **403 Forbidden**: 权限不足
+- **200 OK**: 操作成功，返回更新后数据

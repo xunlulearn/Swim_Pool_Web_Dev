@@ -39,7 +39,7 @@ class Post(TimestampMixin, db.Model):
 
 
 class Comment(TimestampMixin, db.Model):
-    """评论模型，支持软删除"""
+    """评论模型，支持软删除和楼中楼回复"""
     __tablename__ = 'comments'
 
     id = db.Column(db.Integer, primary_key=True)
@@ -47,6 +47,14 @@ class Comment(TimestampMixin, db.Model):
     is_deleted = db.Column(db.Boolean, default=False)  # 软删除标记
     author_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     post_id = db.Column(db.Integer, db.ForeignKey('posts.id'), nullable=False)
+    
+    # 楼中楼回复字段
+    parent_id = db.Column(db.Integer, db.ForeignKey('comments.id'), nullable=True)
+    reply_to_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    
+    # Relationships
+    replies = db.relationship('Comment', backref=db.backref('parent', remote_side=[id]), lazy='dynamic')
+    reply_to_user = db.relationship('User', foreign_keys=[reply_to_user_id])
 
     def to_dict(self):
         return {
@@ -54,5 +62,8 @@ class Comment(TimestampMixin, db.Model):
             'body': self.body,
             'author': self.author.username,
             'author_id': self.author_id,
+            'parent_id': self.parent_id,
+            'reply_to_user': self.reply_to_user.username if self.reply_to_user else None,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
+

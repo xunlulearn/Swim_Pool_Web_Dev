@@ -32,7 +32,8 @@ class User(UserMixin, TimestampMixin, db.Model):
     
     # Relationships
     posts = db.relationship('Post', backref='author', lazy='dynamic', cascade='all, delete-orphan')
-    comments = db.relationship('Comment', backref='author', lazy='dynamic')
+    comments = db.relationship('Comment', backref='author', lazy='dynamic', 
+                                 foreign_keys='Comment.author_id')
     likes = db.relationship('Like', backref='user', lazy='dynamic')
     collections = db.relationship('Collection', backref='user', lazy='dynamic')
     content_reports = db.relationship('ContentReport', backref='reporter', lazy='dynamic', 

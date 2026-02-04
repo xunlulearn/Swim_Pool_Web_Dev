@@ -46,4 +46,17 @@ def create_app(config_name='default'):
     def index():
         return render_template('index.html')
 
+    # Context processor: inject unread message count into all templates
+    @app.context_processor
+    def inject_unread_count():
+        from flask_login import current_user
+        unread_message_count = 0
+        if current_user.is_authenticated and current_user.is_verified:
+            from .models.private_message import PrivateMessage
+            unread_message_count = PrivateMessage.query.filter_by(
+                receiver_id=current_user.id,
+                is_read=False
+            ).count()
+        return dict(unread_message_count=unread_message_count)
+
     return app

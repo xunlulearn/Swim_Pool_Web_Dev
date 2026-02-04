@@ -23,3 +23,15 @@ class Collection(db.Model):
     created_at = db.Column(db.DateTime, default=db.func.now())
     
     __table_args__ = (db.UniqueConstraint('user_id', 'post_id', name='unique_collection'),)
+
+
+class CommentLike(db.Model):
+    """评论点赞表"""
+    __tablename__ = 'comment_likes'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    comment_id = db.Column(db.Integer, db.ForeignKey('comments.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=db.func.now())
+    
+    __table_args__ = (db.UniqueConstraint('user_id', 'comment_id', name='unique_comment_like'),)

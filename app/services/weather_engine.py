@@ -172,16 +172,16 @@ class WeatherEngine:
                 "reported_status": community_status
             }
         
-        # 3. 闪电逻辑 (30分钟持久化)
+        # 3. 闪电逻辑 (45分钟持久化)
         if has_lightning:
             self.last_lightning_alert_time = now
         
         # 检查闪电持久化
         if self.last_lightning_alert_time:
             time_since_alert = (now - self.last_lightning_alert_time).total_seconds() / 60
-            if time_since_alert <= 30:
-                # 在30分钟警告期内
-                remaining = 30 - int(time_since_alert)
+            if time_since_alert <= 45:
+                # 在45分钟警告期内
+                remaining = 45 - int(time_since_alert)
                 if has_lightning:
                     msg_cn = f"游泳池因雷电预警关闭 (最近 {l_dist}km)"
                     msg_en = f"Pool Closed due to Lightning Alert (Nearest {l_dist}km)"

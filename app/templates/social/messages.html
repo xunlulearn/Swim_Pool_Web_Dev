@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Messages | NTU Pool{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto space-y-4">
+    <h1 class="text-2xl font-bold text-slate-800">Messages</h1>
+
+    {% if conversations %}
+    <div class="space-y-2">
+        {% for conv in conversations %}
+        <a href="{{ url_for('social.chat', user_id=conv.user.id) }}" 
+           class="block bg-white p-4 rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition">
+            <div class="flex items-center gap-3">
+                <!-- Avatar -->
+                <div class="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold overflow-hidden">
+                    {% if conv.user.avatar %}
+                        <img src="data:{{ conv.user.avatar_mimetype }};base64,{{ conv.user.avatar | b64encode }}" alt="Avatar" class="w-full h-full object-cover">
+                    {% else %}
+                        {{ conv.user.username[0] | upper }}
+                    {% endif %}
+                </div>
+                
+                <div class="flex-grow min-w-0">
+                    <div class="flex items-center justify-between">
+                        <span class="font-medium text-slate-700">{{ conv.user.nickname or conv.user.username }}</span>
+                        <span class="text-xs text-gray-400">{{ (conv.last_message.created_at | sgt).strftime('%m-%d %H:%M') }}</span>
+                    </div>
+                    <p class="text-sm text-gray-500 truncate mt-1">
+                        {% if conv.last_message.sender_id == current_user.id %}You: {% endif %}
+                        {{ conv.last_message.body[:50] }}{% if conv.last_message.body|length > 50 %}...{% endif %}
+                    </p>
+                </div>
+
+                <!-- Unread Badge -->
+                {% if conv.unread_count > 0 %}
+                <span class="bg-red-500 text-white text-xs px-2 py-1 rounded-full font-medium">
+                    {{ conv.unread_count }}
+                </span>
+                {% endif %}
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center py-16 bg-white rounded-xl border border-gray-100">
+        <svg class="w-12 h-12 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
+        </svg>
+        <p class="text-gray-400">No messages yet.</p>
+        <p class="text-sm text-gray-400 mt-1">Start a conversation by clicking on a user's avatar in posts!</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

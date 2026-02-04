@@ -3,10 +3,12 @@ from flask import Blueprint, render_template, request, flash, redirect, url_for,
 import base64
 from flask_login import login_required, current_user
 from app.models.content import Post, Comment
-from app.models.interaction import Like, Collection
+from app.models.interaction import Like, Collection, CommentLike
 from app.models.content_report import ContentReport
+from app.models.private_message import PrivateMessage
 from app.models.user import User
 from app.extensions import db
+from sqlalchemy import or_, and_
 
 social_bp = Blueprint('social', __name__, url_prefix='/social')
 
@@ -82,18 +84,39 @@ def post_detail(post_id):
     # Get non-deleted comments
     comments = post.comments.filter_by(is_deleted=False).order_by(Comment.created_at.asc()).all()
     
-    # Check if current user liked/saved
+    # Check if current user liked/saved post
     user_liked = False
     user_collected = False
+    liked_comment_ids = set()
+    comment_like_counts = {}
+    
+    # Get comment IDs for this post
+    comment_ids = [c.id for c in comments]
+    
+    # Get comment like counts
+    if comment_ids:
+        for comment_id in comment_ids:
+            comment_like_counts[comment_id] = CommentLike.query.filter_by(comment_id=comment_id).count()
+    
     if current_user.is_authenticated:
         user_liked = Like.query.filter_by(user_id=current_user.id, post_id=post_id).first() is not None
         user_collected = Collection.query.filter_by(user_id=current_user.id, post_id=post_id).first() is not None
+        
+        # Get comment IDs that user liked
+        if comment_ids:
+            user_comment_likes = CommentLike.query.filter(
+                CommentLike.user_id == current_user.id,
+                CommentLike.comment_id.in_(comment_ids)
+            ).all()
+            liked_comment_ids = {cl.comment_id for cl in user_comment_likes}
     
     return render_template('social/post_detail.html', 
                            post=post, 
                            comments=comments,
                            user_liked=user_liked,
-                           user_collected=user_collected)
+                           user_collected=user_collected,
+                           liked_comment_ids=liked_comment_ids,
+                           comment_like_counts=comment_like_counts)
 
 
 # ============== Create Post ==============
@@ -428,3 +451,202 @@ def reject_report(report_id):
     
     flash('Report rejected.', 'success')
     return redirect(url_for('social.admin_reports'))
+
+
+# ============== Reply to Comment (Nested Comments) ==============
+
+@social_bp.route('/comment/<int:comment_id>/reply', methods=['POST'])
+@verified_required
+@check_banned
+def reply_comment(comment_id):
+    """Reply to a comment (nested comment)"""
+    parent_comment = Comment.query.filter_by(id=comment_id, is_deleted=False).first_or_404()
+    
+    body = request.form.get('body', '').strip()
+    if not body:
+        flash('Reply cannot be empty.', 'error')
+        return redirect(url_for('social.post_detail', post_id=parent_comment.post_id))
+    
+    # 找到顶级评论 (如果 parent 本身是子评论，则指向其 parent)
+    top_parent_id = parent_comment.parent_id if parent_comment.parent_id else parent_comment.id
+    reply_to_user_id = parent_comment.author_id
+    
+    reply = Comment(
+        body=body,
+        author_id=current_user.id,
+        post_id=parent_comment.post_id,
+        parent_id=top_parent_id,
+        reply_to_user_id=reply_to_user_id
+    )
+    db.session.add(reply)
+    db.session.commit()
+    
+    flash('Reply posted!', 'success')
+    return redirect(url_for('social.post_detail', post_id=parent_comment.post_id))
+
+
+# ============== Private Messages ==============
+
+@social_bp.route('/messages/')
+@verified_required
+def messages_list():
+    """List all conversations"""
+    # 获取当前用户的所有私信 (作为发送者或接收者)
+    all_messages = PrivateMessage.query.filter(
+        or_(
+            PrivateMessage.sender_id == current_user.id,
+            PrivateMessage.receiver_id == current_user.id
+        )
+    ).order_by(PrivateMessage.created_at.desc()).all()
+    
+    # 整理成会话列表 (按对方用户分组)
+    conversations = {}
+    for msg in all_messages:
+        other_user_id = msg.receiver_id if msg.sender_id == current_user.id else msg.sender_id
+        if other_user_id not in conversations:
+            other_user = User.query.get(other_user_id)
+            unread_count = PrivateMessage.query.filter_by(
+                sender_id=other_user_id,
+                receiver_id=current_user.id,
+                is_read=False
+            ).count()
+            conversations[other_user_id] = {
+                'user': other_user,
+                'last_message': msg,
+                'unread_count': unread_count
+            }
+    
+    # 按最后消息时间排序
+    sorted_conversations = sorted(
+        conversations.values(),
+        key=lambda x: x['last_message'].created_at,
+        reverse=True
+    )
+    
+    return render_template('social/messages.html', conversations=sorted_conversations)
+
+
+@social_bp.route('/messages/<int:user_id>', methods=['GET', 'POST'])
+@verified_required
+@check_banned
+def chat(user_id):
+    """Chat with a specific user"""
+    other_user = User.query.get_or_404(user_id)
+    
+    if request.method == 'POST':
+        body = request.form.get('body', '').strip()
+        if body:
+            message = PrivateMessage(
+                sender_id=current_user.id,
+                receiver_id=user_id,
+                body=body
+            )
+            db.session.add(message)
+            db.session.commit()
+        return redirect(url_for('social.chat', user_id=user_id))
+    
+    # 获取两人之间的所有消息
+    messages = PrivateMessage.query.filter(
+        or_(
+            and_(PrivateMessage.sender_id == current_user.id, PrivateMessage.receiver_id == user_id),
+            and_(PrivateMessage.sender_id == user_id, PrivateMessage.receiver_id == current_user.id)
+        )
+    ).order_by(PrivateMessage.created_at.asc()).all()
+    
+    # 标记对方发来的消息为已读
+    PrivateMessage.query.filter_by(
+        sender_id=user_id,
+        receiver_id=current_user.id,
+        is_read=False
+    ).update({'is_read': True})
+    db.session.commit()
+    
+    return render_template('social/chat.html', other_user=other_user, messages=messages)
+
+
+@social_bp.route('/messages/unread_count')
+@login_required
+def unread_count():
+    """Get total unread message count (for AJAX)"""
+    if not current_user.is_verified:
+        return jsonify({'count': 0})
+    
+    count = PrivateMessage.query.filter_by(
+        receiver_id=current_user.id,
+        is_read=False
+    ).count()
+    return jsonify({'count': count})
+
+
+# ============== Comment Interactions ==============
+
+@social_bp.route('/comment/<int:comment_id>/like', methods=['POST'])
+@login_required
+@verified_required
+@check_banned
+def toggle_comment_like(comment_id):
+    """Toggle like on a comment"""
+    comment = Comment.query.get_or_404(comment_id)
+    if comment.is_deleted:
+        abort(404)
+    
+    existing = CommentLike.query.filter_by(
+        user_id=current_user.id,
+        comment_id=comment_id
+    ).first()
+    
+    if existing:
+        db.session.delete(existing)
+        flash('取消点赞', 'info')
+    else:
+        like = CommentLike(user_id=current_user.id, comment_id=comment_id)
+        db.session.add(like)
+        flash('已点赞', 'success')
+    
+    db.session.commit()
+    return redirect(url_for('social.post_detail', post_id=comment.post_id))
+
+
+@social_bp.route('/comment/<int:comment_id>/report', methods=['POST'])
+@login_required
+@verified_required
+@check_banned
+def report_comment(comment_id):
+    """Report a comment"""
+    comment = Comment.query.get_or_404(comment_id)
+    if comment.is_deleted:
+        abort(404)
+    
+    if comment.author_id == current_user.id:
+        flash('You cannot report your own comment.', 'warning')
+        return redirect(url_for('social.post_detail', post_id=comment.post_id))
+    
+    reason = request.form.get('reason', '').strip()
+    if not reason:
+        flash('Please provide a reason for reporting.', 'warning')
+        return redirect(url_for('social.post_detail', post_id=comment.post_id))
+    
+    # Check if already reported
+    existing = ContentReport.query.filter_by(
+        reporter_id=current_user.id,
+        target_type='comment',
+        target_id=comment_id
+    ).first()
+    
+    if existing:
+        flash('You have already reported this comment.', 'info')
+        return redirect(url_for('social.post_detail', post_id=comment.post_id))
+    
+    report = ContentReport(
+        reporter_id=current_user.id,
+        target_type='comment',
+        target_id=comment_id,
+        reason=reason
+    )
+    db.session.add(report)
+    db.session.commit()
+    
+    flash('Comment reported. Thank you for helping keep our community safe.', 'success')
+    return redirect(url_for('social.post_detail', post_id=comment.post_id))
+
+

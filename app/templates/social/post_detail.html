@@ -85,6 +85,16 @@
                 </button>
             </form>
 
+            <!-- Report (inline button) -->
+            {% if current_user.id != post.author_id %}
+            <button onclick="toggleReportForm('post')" class="flex items-center gap-1.5 text-sm text-gray-400 hover:text-red-500 transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>
+                Report
+            </button>
+            {% endif %}
+
             <span class="flex-grow"></span>
 
             <!-- Author/Admin Actions -->
@@ -114,27 +124,183 @@
             <span class="text-sm text-gray-400">Login to interact</span>
             {% endif %}
         </div>
+        
+        <!-- Report Form (hidden by default) -->
+        <div id="report-form-post" class="hidden border-t border-gray-100 px-5 py-3">
+            <form action="{{ url_for('social.report_post', post_id=post.id) }}" method="POST" class="flex gap-2">
+                <input type="text" name="reason" placeholder="Reason (spam, abuse, etc.)" required
+                       class="flex-grow border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-ntu-blue">
+                <button type="submit" class="bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-600 transition">
+                    Submit
+                </button>
+            </form>
+        </div>
     </article>
-
-    <!-- Report Post -->
-    {% if current_user.is_authenticated and current_user.id != post.author_id %}
-    <details class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-        <summary class="text-sm text-gray-400 cursor-pointer hover:text-red-500">Report this post</summary>
-        <form action="{{ url_for('social.report_post', post_id=post.id) }}" method="POST" class="mt-3 space-y-3">
-            <input type="text" name="reason" placeholder="Enter reason (e.g., spam, abuse, irrelevant)" required
-                   class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-ntu-blue focus:border-ntu-blue">
-            <button type="submit" class="bg-red-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-600 transition">
-                Submit Report
-            </button>
-        </form>
-    </details>
-    {% endif %}
 
     <!-- Comments Section -->
     <section class="space-y-4">
         <h2 class="text-lg font-bold text-slate-800">Comments ({{ comments|length }})</h2>
 
-        <!-- New Comment -->
+        <!-- Comment List -->
+        <div class="space-y-3">
+            {% for comment in comments if comment.parent_id is none %}
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4" id="comment-{{ comment.id }}">
+                <div class="flex items-start gap-3">
+                    <!-- Avatar with link to chat -->
+                    {% if current_user.is_authenticated and current_user.id != comment.author_id %}
+                    <a href="{{ url_for('social.chat', user_id=comment.author_id) }}" 
+                       class="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold text-sm overflow-hidden hover:ring-2 hover:ring-ntu-blue transition">
+                        {% if comment.author.avatar %}
+                            <img src="data:{{ comment.author.avatar_mimetype }};base64,{{ comment.author.avatar | b64encode }}" alt="Avatar" class="w-full h-full object-cover">
+                        {% else %}
+                            {{ comment.author.username[0] | upper }}
+                        {% endif %}
+                    </a>
+                    {% else %}
+                    <div class="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold text-sm overflow-hidden">
+                        {% if comment.author.avatar %}
+                            <img src="data:{{ comment.author.avatar_mimetype }};base64,{{ comment.author.avatar | b64encode }}" alt="Avatar" class="w-full h-full object-cover">
+                        {% else %}
+                            {{ comment.author.username[0] | upper }}
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                    <div class="flex-grow">
+                        <div class="flex items-center gap-2">
+                            <span class="font-medium text-slate-700 text-sm">{{ comment.author.nickname or comment.author.username }}</span>
+                            <span class="text-xs text-gray-400">{{ (comment.created_at | sgt).strftime('%m-%d %H:%M') }}</span>
+                        </div>
+                        <p class="text-slate-600 text-sm mt-1">{{ comment.body }}</p>
+                        
+                        <!-- Comment Actions -->
+                        <div class="flex items-center gap-3 mt-2">
+                            {% if current_user.is_authenticated %}
+                            <!-- Like -->
+                            <form action="{{ url_for('social.toggle_comment_like', comment_id=comment.id) }}" method="POST" class="inline">
+                                <button type="submit" class="flex items-center gap-1 text-xs transition
+                                    {% if comment.id in liked_comment_ids %}text-red-500{% else %}text-gray-400 hover:text-red-500{% endif %}">
+                                    <svg class="w-4 h-4" fill="{% if comment.id in liked_comment_ids %}currentColor{% else %}none{% endif %}" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path>
+                                    </svg>
+                                    {{ comment_like_counts.get(comment.id, 0) }}
+                                </button>
+                            </form>
+                            
+                            <!-- Reply -->
+                            <button onclick="toggleReplyForm({{ comment.id }})" class="flex items-center gap-1 text-xs text-gray-400 hover:text-ntu-blue transition">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"></path>
+                                </svg>
+                                Reply
+                            </button>
+                            
+                            <!-- Report -->
+                            {% if current_user.id != comment.author_id %}
+                            <button onclick="toggleReportForm('comment-{{ comment.id }}')" class="flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 transition">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                                </svg>
+                                Report
+                            </button>
+                            {% endif %}
+                            {% endif %}
+                        </div>
+                        
+                        <!-- Report Form (hidden) -->
+                        {% if current_user.is_authenticated and current_user.id != comment.author_id %}
+                        <div id="report-form-comment-{{ comment.id }}" class="hidden mt-2">
+                            <form action="{{ url_for('social.report_comment', comment_id=comment.id) }}" method="POST" class="flex gap-2">
+                                <input type="text" name="reason" placeholder="Reason..." required
+                                       class="flex-grow border border-gray-200 rounded-lg px-2 py-1 text-xs focus:ring-1 focus:ring-ntu-blue">
+                                <button type="submit" class="bg-red-500 text-white px-2 py-1 rounded-lg text-xs hover:bg-red-600 transition">Report</button>
+                            </form>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% if current_user.is_authenticated and (current_user.id == comment.author_id or current_user.is_admin()) %}
+                    <form action="{{ url_for('social.delete_comment', comment_id=comment.id) }}" method="POST"
+                          onsubmit="return confirm('Delete this comment?')">
+                        <button type="submit" class="text-xs text-gray-400 hover:text-red-500 transition">Delete</button>
+                    </form>
+                    {% endif %}
+                </div>
+                
+                <!-- Reply Form (Hidden by default) -->
+                {% if current_user.is_authenticated %}
+                <form id="reply-form-{{ comment.id }}" action="{{ url_for('social.reply_comment', comment_id=comment.id) }}" method="POST" 
+                      class="hidden mt-3 ml-11">
+                    <div class="flex gap-2">
+                        <input type="text" name="body" placeholder="Write a reply..." required
+                               class="flex-grow border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-1 focus:ring-ntu-blue">
+                        <button type="submit" class="bg-ntu-blue text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-blue-800 transition">
+                            Reply
+                        </button>
+                    </div>
+                </form>
+                {% endif %}
+                
+                <!-- Sub-comments (replies) -->
+                {% set replies = comment.replies.filter_by(is_deleted=False).all() %}
+                {% if replies %}
+                <div class="ml-11 mt-3 space-y-2 border-l-2 border-slate-100 pl-3">
+                    {% for reply in replies %}
+                    <div class="flex items-start gap-2" id="comment-{{ reply.id }}">
+                        <div class="w-6 h-6 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold text-xs overflow-hidden">
+                            {% if reply.author.avatar %}
+                                <img src="data:{{ reply.author.avatar_mimetype }};base64,{{ reply.author.avatar | b64encode }}" alt="Avatar" class="w-full h-full object-cover">
+                            {% else %}
+                                {{ reply.author.username[0] | upper }}
+                            {% endif %}
+                        </div>
+                        <div class="flex-grow">
+                            <div class="flex items-center gap-1 flex-wrap">
+                                <span class="font-medium text-slate-700 text-xs">{{ reply.author.nickname or reply.author.username }}</span>
+                                {% if reply.reply_to_user %}
+                                <span class="text-xs text-gray-400">replied to</span>
+                                <span class="text-xs text-ntu-blue">@{{ reply.reply_to_user.nickname or reply.reply_to_user.username }}</span>
+                                {% endif %}
+                                <span class="text-xs text-gray-400">· {{ (reply.created_at | sgt).strftime('%m-%d %H:%M') }}</span>
+                            </div>
+                            <p class="text-slate-600 text-xs mt-0.5">{{ reply.body }}</p>
+                            
+                            <!-- Reply to reply -->
+                            {% if current_user.is_authenticated %}
+                            <button onclick="toggleReplyForm({{ reply.id }})" class="text-xs text-gray-400 hover:text-ntu-blue transition mt-1">
+                                Reply
+                            </button>
+                            {% endif %}
+                        </div>
+                        {% if current_user.is_authenticated and (current_user.id == reply.author_id or current_user.is_admin()) %}
+                        <form action="{{ url_for('social.delete_comment', comment_id=reply.id) }}" method="POST"
+                              onsubmit="return confirm('Delete this reply?')">
+                            <button type="submit" class="text-xs text-gray-400 hover:text-red-500 transition">×</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Reply to reply form -->
+                    {% if current_user.is_authenticated %}
+                    <form id="reply-form-{{ reply.id }}" action="{{ url_for('social.reply_comment', comment_id=reply.id) }}" method="POST" 
+                          class="hidden ml-8">
+                        <div class="flex gap-2">
+                            <input type="text" name="body" placeholder="Reply to {{ reply.author.nickname or reply.author.username }}..." required
+                                   class="flex-grow border border-gray-200 rounded-lg px-2 py-1 text-xs focus:ring-1 focus:ring-ntu-blue">
+                            <button type="submit" class="bg-ntu-blue text-white px-2 py-1 rounded-lg text-xs font-medium hover:bg-blue-800 transition">
+                                Reply
+                            </button>
+                        </div>
+                    </form>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            {% else %}
+            <div class="text-center py-8 text-gray-400 text-sm">No comments yet. Be the first to comment!</div>
+            {% endfor %}
+        </div>
+        
+        <!-- New Comment (at bottom) -->
         {% if current_user.is_authenticated %}
         <form action="{{ url_for('social.create_comment', post_id=post.id) }}" method="POST" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
             <textarea name="body" rows="3" placeholder="Write a comment..." required
@@ -146,38 +312,28 @@
             </div>
         </form>
         {% endif %}
-
-        <!-- Comment List -->
-        <div class="space-y-3">
-            {% for comment in comments %}
-            <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                <div class="flex items-start gap-3">
-                    <div class="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold text-sm overflow-hidden">
-                        {% if comment.author.avatar %}
-                            <img src="data:{{ comment.author.avatar_mimetype }};base64,{{ comment.author.avatar | b64encode }}" alt="Avatar" class="w-full h-full object-cover">
-                        {% else %}
-                            {{ comment.author.username[0] | upper }}
-                        {% endif %}
-                    </div>
-                    <div class="flex-grow">
-                        <div class="flex items-center gap-2">
-                            <span class="font-medium text-slate-700 text-sm">{{ comment.author.nickname or comment.author.username }}</span>
-                            <span class="text-xs text-gray-400">{{ (comment.created_at | sgt).strftime('%m-%d %H:%M') }}</span>
-                        </div>
-                        <p class="text-slate-600 text-sm mt-1">{{ comment.body }}</p>
-                    </div>
-                    {% if current_user.is_authenticated and (current_user.id == comment.author_id or current_user.is_admin()) %}
-                    <form action="{{ url_for('social.delete_comment', comment_id=comment.id) }}" method="POST"
-                          onsubmit="return confirm('Are you sure you want to delete this comment?')">
-                        <button type="submit" class="text-xs text-gray-400 hover:text-red-500 transition">Delete</button>
-                    </form>
-                    {% endif %}
-                </div>
-            </div>
-            {% else %}
-            <div class="text-center py-8 text-gray-400 text-sm">No comments yet. Be the first to comment!</div>
-            {% endfor %}
-        </div>
     </section>
 </div>
+
+<script>
+function toggleReplyForm(commentId) {
+    const form = document.getElementById('reply-form-' + commentId);
+    if (form) {
+        form.classList.toggle('hidden');
+        if (!form.classList.contains('hidden')) {
+            form.querySelector('input').focus();
+        }
+    }
+}
+
+function toggleReportForm(targetType) {
+    const form = document.getElementById('report-form-' + targetType);
+    if (form) {
+        form.classList.toggle('hidden');
+        if (!form.classList.contains('hidden')) {
+            form.querySelector('input').focus();
+        }
+    }
+}
+</script>
 {% endblock %}
