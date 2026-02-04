@@ -6,11 +6,11 @@
 <div class="max-w-2xl mx-auto flex flex-col h-[calc(100vh-8rem)]">
     <!-- Header -->
     <div class="bg-white rounded-t-xl shadow-sm border border-gray-100 p-4 flex items-center gap-3">
-        <a href="{{ url_for('social.messages_list') }}" class="text-gray-400 hover:text-ntu-blue transition">
+        <button onclick="history.back()" class="text-gray-400 hover:text-ntu-blue transition">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
             </svg>
-        </a>
+        </button>
         <div class="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold overflow-hidden">
             {% if other_user.avatar %}
                 <img src="data:{{ other_user.avatar_mimetype }};base64,{{ other_user.avatar | b64encode }}" alt="Avatar" class="w-full h-full object-cover">

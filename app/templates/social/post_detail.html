@@ -30,6 +30,16 @@
 
             <!-- Author Info -->
             <div class="flex items-center gap-3">
+                {% if current_user.is_authenticated and current_user.id != post.author_id %}
+                <a href="{{ url_for('social.chat', user_id=post.author_id) }}" 
+                   class="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold overflow-hidden hover:ring-2 hover:ring-ntu-blue transition">
+                    {% if post.author.avatar %}
+                        <img src="data:{{ post.author.avatar_mimetype }};base64,{{ post.author.avatar | b64encode }}" alt="Avatar" class="w-full h-full object-cover">
+                    {% else %}
+                        {{ post.author.username[0] | upper }}
+                    {% endif %}
+                </a>
+                {% else %}
                 <div class="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold overflow-hidden">
                     {% if post.author.avatar %}
                         <img src="data:{{ post.author.avatar_mimetype }};base64,{{ post.author.avatar | b64encode }}" alt="Avatar" class="w-full h-full object-cover">
@@ -37,6 +47,7 @@
                         {{ post.author.username[0] | upper }}
                     {% endif %}
                 </div>
+                {% endif %}
                 <div>
                     <div class="font-medium text-slate-700">{{ post.author.nickname or post.author.username }}</div>
                     <div class="text-xs text-gray-400">
