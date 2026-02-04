@@ -94,7 +94,7 @@
 
 ### D. 互动表
 
-**Like 表**:
+**Like 表** (帖子点赞):
 | 字段 | 类型 |
 |------|------|
 | `id` | Integer, PK |
@@ -103,7 +103,16 @@
 | `created_at` | DateTime |
 | **UNIQUE** | (`user_id`, `post_id`) |
 
-**Collection 表**: 同上结构
+**CommentLike 表** (评论点赞):
+| 字段 | 类型 |
+|------|------|
+| `id` | Integer, PK |
+| `user_id` | FK → User |
+| `comment_id` | FK → Comment |
+| `created_at` | DateTime |
+| **UNIQUE** | (`user_id`, `comment_id`) |
+
+**Collection 表**: 同 Like 表结构
 
 ---
 
@@ -121,7 +130,7 @@
 
 ---
 
-### F. 私信表 (PrivateMessage) - 待实现
+### F. 私信表 (PrivateMessage)
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -153,7 +162,7 @@
 ### 5.4 分类
 预设: `General` (一般) / `Squad` (约游) / `LostFound` (失物) / `Tutorial` (教学)
 
-### 5.5 楼中楼回复 (Nested Comments) - 待实现
+### 5.5 楼中楼回复 (Nested Comments)
 
 **层级限制**: 最多 2 层
 - **顶级评论**: `parent_id = NULL`
@@ -167,25 +176,27 @@
 **删除逻辑**: 顶级评论删除后显示「该评论已删除」，子评论仍可见
 
 **前端展示**:
-- 子评论可折叠/展开
-- 回复按钮预填充 `@用户名`
-- 格式: `[用户A] 回复 [用户B]: 内容`
+- 子评论缩进显示在父评论下方
+- 回复按钮 + 回复表单
+- 格式: `[用户A] replied to @[用户B]: 内容`
 
-### 5.6 私聊功能 (Direct Message) - 待实现
+### 5.6 私聊功能 (Direct Message)
 
 **入口**:
-- 用户头像/用户名 → 资料卡片 → 「发消息」按钮
-- 个人中心 → 「消息」Tab
+- 帖子作者头像 → 点击进入聊天页
+- 评论区头像 → 点击进入聊天页
+- 个人中心 → 「Messages」Tab
 
 **逻辑**:
-- 两用户间唯一会话
+- 两用户间唯一会话 (动态生成)
 - 被封禁用户无法发送私信
-- 接收方打开会话时标记所有消息已读
-- 导航栏显示未读消息 Badge
+- 打开会话时自动标记所有消息已读
+- 导航栏 Profile 及个人中心 Messages Tab 显示未读消息红色徽章
 
 **前端**:
 - 会话列表: 对方头像、昵称、最后消息摘要、时间、未读数
-- 聊天详情: 自己消息靠右，对方靠左
+- 聊天详情: 自己消息靠右 (蓝色)，对方靠左 (白色)
+- 返回按钮使用浏览器历史返回
 
 ---
 
@@ -210,15 +221,16 @@
 | `/social/profile` | GET | User/Admin | 个人中心 |
 | `/social/admin/reports` | GET | Admin | 举报管理 |
 
-### 新增路由 (待实现)
+### 新增路由
 
 | 路由 | 方法 | 权限 | 描述 |
 |-----|------|------|------|
 | `/social/comment/<id>/reply` | POST | User/Admin | 回复评论 (楼中楼) |
+| `/social/comment/<id>/like` | POST | User/Admin | 评论点赞/取消 |
+| `/social/comment/<id>/report` | POST | User/Admin | 举报评论 |
 | `/social/messages/` | GET | User/Admin | 会话列表 |
-| `/social/messages/<user_id>` | GET | User/Admin | 聊天记录 |
-| `/social/messages/<user_id>` | POST | User/Admin | 发送私信 |
-| `/social/messages/unread_count` | GET | User/Admin | 未读消息数 |
+| `/social/messages/<user_id>` | GET/POST | User/Admin | 查看/发送私信 |
+| `/social/messages/unread_count` | GET | User/Admin | 未读消息数 (AJAX) |
 
 ---
 
