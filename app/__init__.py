@@ -15,7 +15,8 @@ def create_app(config_name='default'):
     def to_singapore_time(dt):
         """Convert UTC datetime to Singapore Time (UTC+8)"""
         if dt is None:
-            return ''
+            # 返回当前时间作为默认值，避免后续 .strftime() 调用失败
+            dt = datetime.utcnow()
         # Assume dt is naive UTC, make it aware then convert
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
