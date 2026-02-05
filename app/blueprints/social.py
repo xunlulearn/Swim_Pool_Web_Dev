@@ -54,8 +54,10 @@ def admin_required(f):
 
 @social_bp.route('/')
 def feed():
-    """Community feed - post list"""
+    """Community feed - post list with pagination"""
     category = request.args.get('category', 'all')
+    page = request.args.get('page', 1, type=int)
+    per_page = 20  # 每页显示20个帖子
     
     # Base query: exclude soft-deleted posts
     query = Post.query.filter_by(is_deleted=False)
@@ -64,10 +66,16 @@ def feed():
     if category != 'all':
         query = query.filter_by(category=category)
     
-    # Pinned posts first, then by date descending
-    posts = query.order_by(Post.is_pinned.desc(), Post.created_at.desc()).all()
+    # Pinned posts first, then by date descending, with pagination
+    pagination = query.order_by(Post.is_pinned.desc(), Post.created_at.desc()).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+    posts = pagination.items
     
-    return render_template('social/feed.html', posts=posts, current_category=category)
+    return render_template('social/feed.html', 
+                           posts=posts, 
+                           current_category=category,
+                           pagination=pagination)
 
 
 # ============== Post Detail ==============
