@@ -26,7 +26,7 @@ The system determines the pool status based on the following **Priority Order** 
 * **Rule**: Safety first.
 * **Condition**: Any lightning detected within **15km** of NTU SRC.
 * **Status**: **CLOSED** (Message: "Pool Closed - Lightning Alert").
-* **Validity**: Persists for **30 minutes** after the last lightning detection within close range.
+* **Validity**: Persists for **45 minutes** after the last lightning detection within close range.
 
 ### 4. Heavy Rain Warning
 * **Rule**: Rainfall intensity check at **Station S44 (Nanyang Avenue)**.

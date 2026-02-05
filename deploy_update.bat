@@ -22,7 +22,7 @@ if %errorlevel% neq 0 (
 :: 3. 部署服务 (Deploy)
 echo.
 echo [2/2] 正在将新镜像发布到 Cloud Run...
-call gcloud run deploy ntu-pool --image asia-southeast1-docker.pkg.dev/ntu-swimpool-web/ntu-pool-repo/ntu-pool --region asia-southeast1 --allow-unauthenticated
+call gcloud run deploy ntu-pool --image asia-southeast1-docker.pkg.dev/ntu-swimpool-web/ntu-pool-repo/ntu-pool --region asia-southeast1 --allow-unauthenticated --memory 1Gi
 
 echo.
 echo ==========================================
