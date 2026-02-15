@@ -52,18 +52,26 @@ class User(UserMixin, TimestampMixin, db.Model):
             return False
         return check_password_hash(self.password_hash, password)
 
-    def generate_auth_token(self, expiration=3600):
-        s = URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
-        return s.dumps({'confirm': self.id})
+    def generate_auth_token(self, expiration=3600, purpose='auth'):
+        serializer = URLSafeTimedSerializer(
+            current_app.config['SECRET_KEY'],
+            salt=f'user-token:{purpose}',
+        )
+        return serializer.dumps({'uid': self.id, 'purpose': purpose})
 
     @staticmethod
-    def verify_auth_token(token):
-        s = URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
+    def verify_auth_token(token, purpose='auth', max_age=3600):
+        serializer = URLSafeTimedSerializer(
+            current_app.config['SECRET_KEY'],
+            salt=f'user-token:{purpose}',
+        )
         try:
-            data = s.loads(token)
-        except:
+            data = serializer.loads(token, max_age=max_age)
+        except Exception:
             return None
-        return User.query.get(data['confirm'])
+        if data.get('purpose') != purpose:
+            return None
+        return db.session.get(User, data.get('uid'))
     
     def is_admin(self):
         """检查用户是否为管理员"""

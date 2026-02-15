@@ -14,6 +14,9 @@
         Please check your inbox (and spam folder) to activate your account.
     </p>
 
-    <a href="{{ url_for('auth.resend_confirmation') }}" class="text-ntu-blue font-medium hover:underline">Resend Verification Email</a>
+    <form action="{{ url_for('auth.resend_confirmation') }}" method="POST" class="inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="text-ntu-blue font-medium hover:underline">Resend Verification Email</button>
+    </form>
 </div>
 {% endblock %}

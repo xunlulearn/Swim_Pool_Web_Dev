@@ -1,31 +1,54 @@
 @echo off
+setlocal EnableExtensions
+
 echo ==========================================
-echo       正在准备更新 NTU Pool 网站...
+echo   Deploy NTU Pool to Cloud Run (Update)
 echo ==========================================
 
-:: 1. 设置环境变量 (防止找不到 gcloud 命令)
-set PATH=D:\Google Cloud SDK\google-cloud-sdk\bin;%PATH%
+set GCLOUD_BIN=D:\Google Cloud SDK\google-cloud-sdk\bin
+set PATH=%GCLOUD_BIN%;%PATH%
+set SERVICE_NAME=ntu-pool
+set REGION=asia-southeast1
+set IMAGE=asia-southeast1-docker.pkg.dev/ntu-swimpool-web/ntu-pool-repo/ntu-pool
 
-:: 2. 构建并上传镜像 (Build)
-echo.
-echo [1/2] 正在构建 Docker 镜像并推送到云端仓库...
-call gcloud builds submit --tag asia-southeast1-docker.pkg.dev/ntu-swimpool-web/ntu-pool-repo/ntu-pool
-
-:: 检查上一步是否成功
-if %errorlevel% neq 0 (
-    echo.
-    echo [错误] 构建失败！请检查报错信息。
+where gcloud >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] gcloud not found. Please install Google Cloud SDK first.
     pause
-    exit /b %errorlevel%
+    exit /b 1
 )
 
-:: 3. 部署服务 (Deploy)
+if "%SECRET_KEY%"=="" (
+    set SECRET_KEY=%RANDOM%%RANDOM%%RANDOM%%RANDOM%%RANDOM%%RANDOM%%RANDOM%%RANDOM%
+    echo [INFO] SECRET_KEY not set. Generated a temporary key for this deploy.
+)
+
 echo.
-echo [2/2] 正在将新镜像发布到 Cloud Run...
-call gcloud run deploy ntu-pool --image asia-southeast1-docker.pkg.dev/ntu-swimpool-web/ntu-pool-repo/ntu-pool --region asia-southeast1 --allow-unauthenticated --memory 1Gi
+echo [1/2] Building image...
+call gcloud builds submit --tag "%IMAGE%"
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Build failed.
+    pause
+    exit /b 1
+)
+
+echo.
+echo [2/2] Deploying service...
+call gcloud run deploy "%SERVICE_NAME%" --image "%IMAGE%" --region "%REGION%" --allow-unauthenticated --memory 1Gi --update-env-vars "FLASK_ENV=production,FLASK_CONFIG=production,SECRET_KEY=%SECRET_KEY%"
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Deploy failed.
+    pause
+    exit /b 1
+)
+
+for /f "delims=" %%i in ('gcloud run services describe "%SERVICE_NAME%" --region "%REGION%" --format "value(status.url)"') do set SERVICE_URL=%%i
 
 echo.
 echo ==========================================
-echo          恭喜！网站更新成功！
+echo   Deploy completed
 echo ==========================================
+echo URL: %SERVICE_URL%
 pause
+exit /b 0

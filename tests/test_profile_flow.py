@@ -5,10 +5,8 @@ import io
 
 @pytest.fixture
 def app():
-    app = create_app()
-    app.config['TESTING'] = True
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:' # Use in-memory DB for speed
-    app.config['WTF_CSRF_ENABLED'] = False # Disable CSRF for easier testing
+    app = create_app('testing')
+    app.config['WTF_CSRF_ENABLED'] = False  # Disable CSRF for easier testing
     
     with app.app_context():
         db.create_all()

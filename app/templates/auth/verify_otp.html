@@ -18,6 +18,7 @@
     </div>
 
     <form method="POST" action="{{ url_for('auth.verify_otp') }}" class="space-y-6">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div>
             <label for="otp_code" class="block text-sm font-medium text-slate-700 text-center">Verification Code</label>
             <input type="text" name="otp_code" id="otp_code" required maxlength="6" pattern="[0-9]{6}" placeholder="123456"
@@ -33,9 +34,12 @@
 
     <div class="mt-6 text-center text-sm">
         <span class="text-gray-500">Didn't receive the code?</span>
-        <a href="{{ url_for('auth.resend_confirmation') }}" class="font-medium text-ntu-blue hover:text-blue-800">
-            Resend Code
-        </a>
+        <form action="{{ url_for('auth.resend_confirmation') }}" method="POST" class="inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="font-medium text-ntu-blue hover:text-blue-800">
+                Resend Code
+            </button>
+        </form>
     </div>
 </div>
 {% endblock %}

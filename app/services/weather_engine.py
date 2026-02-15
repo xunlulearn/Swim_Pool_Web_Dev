@@ -2,6 +2,7 @@ import requests
 import math
 import json
 import os
+import logging
 from datetime import datetime, timezone, timedelta
 from enum import Enum
 
@@ -9,6 +10,7 @@ from enum import Enum
 USE_SAMPLE_DATA = False
 SAMPLE_LIGHTNING_PATH = os.path.join(os.path.dirname(__file__), '..', '..', 'tests', 'sample_nea_lightning_data.json')
 SAMPLE_RAINFALL_PATH = os.path.join(os.path.dirname(__file__), '..', '..', 'tests', 'sample_nea_rainfall_data.json')
+logger = logging.getLogger(__name__)
 
 class PoolStatus(Enum):
     """游泳池开放状态枚举"""
@@ -45,6 +47,7 @@ class WeatherEngine:
         # 状态持久化变量
         self.last_lightning_alert_time = None  # 上次闪电警报时间
         self.last_rain_alert_time = None       # 上次降雨警报时间
+        self.last_rainfall_error = None
         
         # 2026年新加坡公共假期 (YYYY-MM-DD)
         self.PUBLIC_HOLIDAYS_2026 = {
@@ -128,8 +131,8 @@ class WeatherEngine:
             
             return first_status # "Open" or "Closed"
             
-        except Exception as e:
-            print(f"获取社区共识失败: {e}")
+        except Exception:
+            logger.exception("Failed to evaluate community consensus.")
             return None
 
     def get_overall_status(self):
@@ -170,6 +173,14 @@ class WeatherEngine:
                 **base_metrics,
                 "reason": "community_consensus", 
                 "reported_status": community_status
+            }
+
+        if l_details.get('error') or self.last_rainfall_error:
+            return PoolStatus.AMBER, "天气数据暂时不可用<br>Weather data temporarily unavailable", {
+                **base_metrics,
+                "reason": "weather_data_unavailable",
+                "lightning_error": l_details.get('error'),
+                "rainfall_error": self.last_rainfall_error,
             }
         
         # 3. 闪电逻辑 (45分钟持久化)
@@ -272,19 +283,22 @@ class WeatherEngine:
                 response = requests.get(self.LIGHTNING_API_URL, headers=headers, timeout=10)
                 
                 if response.status_code == 403:
-                    return PoolStatus.GREEN, "API密钥缺失或无效", {"error": "Missing/Invalid API Key"}
+                    return PoolStatus.AMBER, "API密钥缺失或无效", {"error": "missing_or_invalid_api_key"}
                 
                 if response.status_code != 200:
-                    print(f"获取闪电数据失败: HTTP {response.status_code}")
-                    return PoolStatus.GREEN, "数据暂时不可用", {"error": "API unavailable"}
+                    logger.warning(
+                        "Lightning API request failed with HTTP %s.",
+                        response.status_code,
+                    )
+                    return PoolStatus.AMBER, "数据暂时不可用", {"error": "api_unavailable"}
 
                 data = response.json()
             
             # NEA API v2 数据结构: data.records[].item.readings[]
             # readings 中每个元素包含闪电的坐标信息
             if data.get('code') != 0:
-                print(f"API返回错误: {data.get('errorMsg', 'Unknown error')}")
-                return self._get_mock_status()
+                logger.warning("Lightning API returned error code payload: %s", data.get('errorMsg'))
+                return PoolStatus.AMBER, "天气数据暂时不可用", {"error": "api_error_payload"}
             
             records = data.get('data', {}).get('records', [])
             all_readings = []
@@ -333,14 +347,14 @@ class WeatherEngine:
             return status, message, details
 
         except requests.exceptions.Timeout:
-            print("API请求超时")
-            return PoolStatus.GREEN, "网络超时，状态未知", {"error": "timeout"}
-        except requests.exceptions.RequestException as e:
-            print(f"网络请求异常: {e}")
-            return PoolStatus.GREEN, "网络错误", {"error": str(e)}
-        except Exception as e:
-            print(f"天气引擎异常: {e}")
-            return PoolStatus.GREEN, "系统错误", {"error": str(e)}
+            logger.warning("Lightning API request timeout.")
+            return PoolStatus.AMBER, "网络超时，状态未知", {"error": "timeout"}
+        except requests.exceptions.RequestException:
+            logger.exception("Lightning API request error.")
+            return PoolStatus.AMBER, "网络错误", {"error": "network_error"}
+        except Exception:
+            logger.exception("Unexpected weather engine error when fetching lightning status.")
+            return PoolStatus.AMBER, "系统错误", {"error": "system_error"}
 
     def get_rainfall_status(self):
         """
@@ -350,6 +364,7 @@ class WeatherEngine:
             tuple: (rainfall_mm_per_hour, nearest_station_name, station_distance_km)
         """
         try:
+            self.last_rainfall_error = None
             # 测试模式：使用本地样例数据
             if USE_SAMPLE_DATA:
                 with open(SAMPLE_RAINFALL_PATH, 'r', encoding='utf-8') as f:
@@ -365,13 +380,18 @@ class WeatherEngine:
                 response = requests.get(self.RAINFALL_API_URL, headers=headers, timeout=10)
                 
                 if response.status_code != 200:
-                    print(f"获取降雨数据失败: HTTP {response.status_code}")
+                    self.last_rainfall_error = f"http_{response.status_code}"
+                    logger.warning(
+                        "Rainfall API request failed with HTTP %s.",
+                        response.status_code,
+                    )
                     return 0.0, None, None
 
                 data = response.json()
             
             if data.get('code') != 0:
-                print(f"降雨API返回错误: {data.get('errorMsg', 'Unknown error')}")
+                self.last_rainfall_error = 'api_error_payload'
+                logger.warning("Rainfall API returned error code payload: %s", data.get('errorMsg'))
                 return 0.0, None, None
             
             # 解析站点信息 - 建立 stationId -> {name, lat, lon} 映射
@@ -405,6 +425,7 @@ class WeatherEngine:
                     nearest_station_name = info['name']
             
             if nearest_station_id is None:
+                self.last_rainfall_error = 'station_not_found'
                 return 0.0, None, None
             
             # 获取最近站点的降雨值
@@ -425,8 +446,9 @@ class WeatherEngine:
             
             return rainfall_per_hour, nearest_station_name, round(min_distance, 2)
             
-        except Exception as e:
-            print(f"获取降雨数据异常: {e}")
+        except Exception:
+            self.last_rainfall_error = 'exception'
+            logger.exception("Unexpected weather engine error when fetching rainfall status.")
             return 0.0, None, None
 
 

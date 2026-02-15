@@ -8,6 +8,7 @@
     <p class="text-sm text-gray-600 text-center mb-6">Enter your email address and we'll send you a verification code.</p>
     
     <form method="POST" action="{{ url_for('auth.reset_request') }}" class="space-y-4">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div>
             <label for="email" class="block text-sm font-medium text-slate-700">Email</label>
             <input type="email" name="email" id="email" required placeholder="your@email.com" value="{{ email_value if email_value else '' }}"

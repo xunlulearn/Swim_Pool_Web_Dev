@@ -7,6 +7,7 @@
     <h2 class="text-2xl font-bold text-center text-slate-800 mb-6">Welcome Back</h2>
     
     <form method="POST" action="{{ url_for('auth.login') }}" class="space-y-4">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div>
             <label for="email" class="block text-sm font-medium text-slate-700">Email</label>
             <input type="email" name="email" id="email" required placeholder="your@email.com"

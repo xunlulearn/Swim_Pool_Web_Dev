@@ -8,6 +8,7 @@
     <p class="text-center text-gray-500 text-sm mb-6">Join our swimming community</p>
     
     <form method="POST" action="{{ url_for('auth.register') }}" class="space-y-4">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div>
             <label for="username" class="block text-sm font-medium text-slate-700">Username</label>
             <input type="text" name="username" id="username" required

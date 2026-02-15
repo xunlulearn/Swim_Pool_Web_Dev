@@ -1,5 +1,5 @@
 from functools import wraps
-from flask import Blueprint, render_template, request, flash, redirect, url_for, jsonify, abort
+from flask import Blueprint, render_template, request, flash, redirect, url_for, jsonify, abort, current_app
 import base64
 from flask_login import login_required, current_user
 from app.models.content import Post, Comment
@@ -8,7 +8,8 @@ from app.models.content_report import ContentReport
 from app.models.private_message import PrivateMessage
 from app.models.user import User
 from app.extensions import db
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, func
+from sqlalchemy.exc import IntegrityError
 
 social_bp = Blueprint('social', __name__, url_prefix='/social')
 
@@ -85,9 +86,12 @@ def post_detail(post_id):
     """Post detail page"""
     post = Post.query.filter_by(id=post_id, is_deleted=False).first_or_404()
     
-    # Increment view count
-    post.view_count += 1
+    # Atomic increment avoids lost updates under concurrent requests.
+    Post.query.filter_by(id=post_id, is_deleted=False).update(
+        {Post.view_count: Post.view_count + 1}
+    )
     db.session.commit()
+    db.session.refresh(post)
     
     # Get non-deleted comments
     comments = post.comments.filter_by(is_deleted=False).order_by(Comment.created_at.asc()).all()
@@ -103,8 +107,15 @@ def post_detail(post_id):
     
     # Get comment like counts
     if comment_ids:
-        for comment_id in comment_ids:
-            comment_like_counts[comment_id] = CommentLike.query.filter_by(comment_id=comment_id).count()
+        counts = db.session.query(
+            CommentLike.comment_id,
+            func.count(CommentLike.id)
+        ).filter(
+            CommentLike.comment_id.in_(comment_ids)
+        ).group_by(
+            CommentLike.comment_id
+        ).all()
+        comment_like_counts = {comment_id: count for comment_id, count in counts}
     
     if current_user.is_authenticated:
         user_liked = Like.query.filter_by(user_id=current_user.id, post_id=post_id).first() is not None
@@ -272,7 +283,10 @@ def toggle_like(post_id):
     else:
         like = Like(user_id=current_user.id, post_id=post_id)
         db.session.add(like)
-        db.session.commit()
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
         message = 'Liked!'
     
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
@@ -300,7 +314,10 @@ def toggle_collect(post_id):
     else:
         collection = Collection(user_id=current_user.id, post_id=post_id)
         db.session.add(collection)
-        db.session.commit()
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
         message = 'Saved!'
     
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
@@ -410,8 +427,14 @@ def edit_profile():
             if mimetype not in ['image/jpeg', 'image/png']:
                 flash('Invalid image format. Only JPEG and PNG are allowed.', 'error')
                 return redirect(url_for('social.edit_profile'))
-                
-            current_user.avatar = avatar_file.read()
+
+            max_avatar_size = int(current_app.config.get('MAX_CONTENT_LENGTH') or (2 * 1024 * 1024))
+            avatar_data = avatar_file.read(max_avatar_size + 1)
+            if len(avatar_data) > max_avatar_size:
+                flash('Image is too large. Please upload a file smaller than 2MB.', 'error')
+                return redirect(url_for('social.edit_profile'))
+
+            current_user.avatar = avatar_data
             current_user.avatar_mimetype = mimetype
             
         db.session.commit()
@@ -499,32 +522,44 @@ def reply_comment(comment_id):
 @verified_required
 def messages_list():
     """List all conversations"""
-    # 获取当前用户的所有私信 (作为发送者或接收者)
     all_messages = PrivateMessage.query.filter(
         or_(
             PrivateMessage.sender_id == current_user.id,
             PrivateMessage.receiver_id == current_user.id
         )
     ).order_by(PrivateMessage.created_at.desc()).all()
-    
-    # 整理成会话列表 (按对方用户分组)
+
+    other_user_ids = {
+        (msg.receiver_id if msg.sender_id == current_user.id else msg.sender_id)
+        for msg in all_messages
+    }
+    user_map = {}
+    unread_count_map = {}
+    if other_user_ids:
+        users = User.query.filter(User.id.in_(other_user_ids)).all()
+        user_map = {user.id: user for user in users}
+        unread_rows = db.session.query(
+            PrivateMessage.sender_id,
+            func.count(PrivateMessage.id)
+        ).filter(
+            PrivateMessage.receiver_id == current_user.id,
+            PrivateMessage.is_read.is_(False),
+            PrivateMessage.sender_id.in_(other_user_ids)
+        ).group_by(
+            PrivateMessage.sender_id
+        ).all()
+        unread_count_map = {sender_id: count for sender_id, count in unread_rows}
+
     conversations = {}
     for msg in all_messages:
         other_user_id = msg.receiver_id if msg.sender_id == current_user.id else msg.sender_id
-        if other_user_id not in conversations:
-            other_user = User.query.get(other_user_id)
-            unread_count = PrivateMessage.query.filter_by(
-                sender_id=other_user_id,
-                receiver_id=current_user.id,
-                is_read=False
-            ).count()
+        if other_user_id not in conversations and other_user_id in user_map:
             conversations[other_user_id] = {
-                'user': other_user,
+                'user': user_map[other_user_id],
                 'last_message': msg,
-                'unread_count': unread_count
+                'unread_count': unread_count_map.get(other_user_id, 0),
             }
-    
-    # 按最后消息时间排序
+
     sorted_conversations = sorted(
         conversations.values(),
         key=lambda x: x['last_message'].created_at,
@@ -589,7 +624,6 @@ def unread_count():
 # ============== Comment Interactions ==============
 
 @social_bp.route('/comment/<int:comment_id>/like', methods=['POST'])
-@login_required
 @verified_required
 @check_banned
 def toggle_comment_like(comment_id):
@@ -609,9 +643,12 @@ def toggle_comment_like(comment_id):
     else:
         like = CommentLike(user_id=current_user.id, comment_id=comment_id)
         db.session.add(like)
-        flash('已点赞', 'success')
-    
-    db.session.commit()
+        flash('Liked', 'success')
+
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
     return redirect(url_for('social.post_detail', post_id=comment.post_id))
 
 
