@@ -10,6 +10,8 @@ class Post(TimestampMixin, db.Model):
     title = db.Column(db.String(200), nullable=False)
     body = db.Column(db.Text, nullable=False)
     image_url = db.Column(db.String(255))
+    image = db.Column(db.LargeBinary)
+    image_mimetype = db.Column(db.String(32))
     category = db.Column(db.String(20), default='general')  # general, squad, lostfound, tutorial
     is_pinned = db.Column(db.Boolean, default=False)
     is_deleted = db.Column(db.Boolean, default=False)  # 软删除标记
@@ -34,7 +36,8 @@ class Post(TimestampMixin, db.Model):
             'like_count': self.likes.count(),
             'comment_count': self.comments.filter_by(is_deleted=False).count(),
             'created_at': self.created_at.isoformat() if self.created_at else None,
-            'image_url': self.image_url
+            'image_url': self.image_url,
+            'has_image': self.image is not None,
         }
 
 
@@ -44,6 +47,8 @@ class Comment(TimestampMixin, db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     body = db.Column(db.Text, nullable=False)
+    image = db.Column(db.LargeBinary)
+    image_mimetype = db.Column(db.String(32))
     is_deleted = db.Column(db.Boolean, default=False)  # 软删除标记
     author_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     post_id = db.Column(db.Integer, db.ForeignKey('posts.id'), nullable=False)
@@ -64,6 +69,7 @@ class Comment(TimestampMixin, db.Model):
             'author_id': self.author_id,
             'parent_id': self.parent_id,
             'reply_to_user': self.reply_to_user.username if self.reply_to_user else None,
-            'created_at': self.created_at.isoformat() if self.created_at else None
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'has_image': self.image is not None,
         }
 

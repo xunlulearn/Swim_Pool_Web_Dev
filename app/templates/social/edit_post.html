@@ -15,7 +15,7 @@
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <h1 class="text-xl font-bold text-slate-800 mb-6">Edit Post</h1>
 
-        <form action="{{ url_for('social.edit_post', post_id=post.id) }}" method="POST" class="space-y-5">
+        <form action="{{ url_for('social.edit_post', post_id=post.id) }}" method="POST" enctype="multipart/form-data" class="space-y-5">
             <!-- Title -->
             <div>
                 <label for="title" class="block text-sm font-medium text-slate-700 mb-1">Title</label>
@@ -40,6 +40,38 @@
                 <label for="body" class="block text-sm font-medium text-slate-700 mb-1">Content</label>
                 <textarea id="body" name="body" rows="8" required
                           class="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-ntu-blue focus:border-ntu-blue resize-none">{{ post.body }}</textarea>
+            </div>
+
+            <!-- Image -->
+            <div class="space-y-2">
+                <label for="image" class="block text-sm font-medium text-slate-700">Update Image (Optional)</label>
+                {% if post.image %}
+                <img
+                    src="data:{{ post.image_mimetype }};base64,{{ post.image | b64encode }}"
+                    alt="Current post image"
+                    class="w-full max-h-72 object-contain rounded-lg border border-gray-200 bg-slate-50"
+                >
+                {% elif post.image_url %}
+                <img
+                    src="{{ post.image_url }}"
+                    alt="Current post image"
+                    class="w-full max-h-72 object-contain rounded-lg border border-gray-200 bg-slate-50"
+                >
+                {% endif %}
+                <input
+                    type="file"
+                    id="image"
+                    name="image"
+                    accept="image/png, image/jpeg"
+                    class="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-ntu-blue focus:border-ntu-blue bg-white"
+                >
+                {% if post.image or post.image_url %}
+                <label class="inline-flex items-center gap-2 text-xs text-gray-500">
+                    <input type="checkbox" name="remove_image" value="1" class="rounded border-gray-300">
+                    Remove current image
+                </label>
+                {% endif %}
+                <p class="text-xs text-gray-400">JPEG/PNG, max 2MB.</p>
             </div>
 
             <!-- Submit -->

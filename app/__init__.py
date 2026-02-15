@@ -4,6 +4,7 @@ import secrets
 from flask import Flask, render_template, request, jsonify, flash, redirect, url_for, session
 from datetime import datetime, timedelta, timezone
 from itsdangerous import URLSafeTimedSerializer, BadData
+from sqlalchemy import inspect, text
 from .config import config
 from .extensions import db, mail, login_manager
 
@@ -46,6 +47,50 @@ def create_app(config_name=None):
     db.init_app(app)
     mail.init_app(app)
     login_manager.init_app(app)
+
+    def ensure_image_columns():
+        dialect = db.engine.dialect.name
+        blob_type = 'BYTEA' if dialect == 'postgresql' else 'BLOB'
+        table_column_specs = {
+            'posts': {
+                'image': f'{blob_type}',
+                'image_mimetype': 'VARCHAR(32)',
+            },
+            'comments': {
+                'image': f'{blob_type}',
+                'image_mimetype': 'VARCHAR(32)',
+            },
+        }
+
+        inspector = inspect(db.engine)
+        existing_tables = set(inspector.get_table_names())
+        statements = []
+
+        for table_name, specs in table_column_specs.items():
+            if table_name not in existing_tables:
+                continue
+            existing_columns = {col['name'] for col in inspector.get_columns(table_name)}
+            for column_name, column_type in specs.items():
+                if column_name in existing_columns:
+                    continue
+                statements.append(
+                    f'ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}'
+                )
+
+        if not statements:
+            return
+
+        for statement in statements:
+            db.session.execute(text(statement))
+        db.session.commit()
+        app.logger.info('Auto-migration applied for post/comment image columns.')
+
+    with app.app_context():
+        try:
+            ensure_image_columns()
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('Failed to auto-migrate image columns for posts/comments.')
 
     def csrf_error_response():
         if request.path.startswith('/api/') or request.is_json:

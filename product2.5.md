@@ -12,8 +12,8 @@
 
 ## Status Logic Integration
 * The pool status indicator should show **CLOSED** outside of operating hours, regardless of weather conditions.
-* During operating hours, the weather-based status (GREEN/AMBER/RED) takes precedence.
-* A countdown timer or "Opens in X hours" message should be displayed when the pool is closed due to operating hours.
+* During operating hours, priority is: **Community Consensus > Weather Rules**.
+* When closed due to operating hours, the message should show outside-hours status and the active time window (weekday or weekend/holiday schedule).
 
 ---
 

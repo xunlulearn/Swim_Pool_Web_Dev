@@ -103,6 +103,19 @@
                         
                         <!-- Body Preview -->
                         <p class="text-slate-600 text-sm mt-2 line-clamp-2">{{ post.body[:120] }}{% if post.body|length > 120 %}...{% endif %}</p>
+                        {% if post.image %}
+                        <img
+                            src="data:{{ post.image_mimetype }};base64,{{ post.image | b64encode }}"
+                            alt="Post image preview"
+                            class="mt-3 max-h-56 w-full object-cover rounded-lg border border-gray-100 bg-slate-50"
+                        >
+                        {% elif post.image_url %}
+                        <img
+                            src="{{ post.image_url }}"
+                            alt="Post image preview"
+                            class="mt-3 max-h-56 w-full object-cover rounded-lg border border-gray-100 bg-slate-50"
+                        >
+                        {% endif %}
 
                         <!-- Stats -->
                         <div class="flex items-center gap-4 mt-3 text-xs text-gray-400">

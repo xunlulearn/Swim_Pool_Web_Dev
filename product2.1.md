@@ -29,7 +29,7 @@ The system determines the pool status based on the following **Priority Order** 
 * **Validity**: Persists for **45 minutes** after the last lightning detection within close range.
 
 ### 4. Heavy Rain Warning
-* **Rule**: Rainfall intensity check at **Station S44 (Nanyang Avenue)**.
+* **Rule**: Rainfall intensity check at the **nearest available station to NTU SRC**.
 * **Condition**: Rainfall intensity > **5.0 mm/h** (approx > 0.4mm per 5min block).
 * **Status**: **CLOSED** (Message: "Pool Closed - Heavy Rain").
 * **Validity**: Persists for **30 minutes** after rainfall drops below threshold.
@@ -40,4 +40,4 @@ The system determines the pool status based on the following **Priority Order** 
 
 ## Update Frequency
 * **Weather Polling**: Every 1 minute.
-* **User Reports**: Real-time event driven.
+* **User Reports (Feed Refresh)**: Frontend polling every 1 minute.

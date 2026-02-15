@@ -66,7 +66,9 @@
             <div class="prose prose-slate max-w-none text-slate-700 leading-relaxed whitespace-pre-wrap">{{ post.body }}</div>
 
             <!-- Image -->
-            {% if post.image_url %}
+            {% if post.image %}
+            <img src="data:{{ post.image_mimetype }};base64,{{ post.image | b64encode }}" alt="Post image" class="w-full rounded-lg">
+            {% elif post.image_url %}
             <img src="{{ post.image_url }}" alt="Post image" class="w-full rounded-lg">
             {% endif %}
         </div>
@@ -150,11 +152,11 @@
 
     <!-- Comments Section -->
     <section class="space-y-4">
-        <h2 class="text-lg font-bold text-slate-800">Comments ({{ comments|length }})</h2>
+        <h2 class="text-lg font-bold text-slate-800">Comments ({{ comment_count }})</h2>
 
         <!-- Comment List -->
         <div class="space-y-3">
-            {% for comment in comments if comment.parent_id is none %}
+            {% for comment in top_comments %}
             <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4" id="comment-{{ comment.id }}">
                 <div class="flex items-start gap-3">
                     <!-- Avatar with link to chat -->
@@ -181,9 +183,21 @@
                             <span class="font-medium text-slate-700 text-sm">{{ comment.author.nickname or comment.author.username }}</span>
                             <span class="text-xs text-gray-400">{{ (comment.created_at | sgt).strftime('%m-%d %H:%M') }}</span>
                         </div>
-                        <p class="text-slate-600 text-sm mt-1">{{ comment.body }}</p>
+                        {% if comment.is_deleted %}
+                        <p class="mt-2 text-sm italic font-serif tracking-wide text-gray-500">This comment has been deleted.</p>
+                        {% else %}
+                        <p class="text-slate-600 text-sm mt-1 whitespace-pre-wrap">{{ comment.body }}</p>
+                        {% if comment.image %}
+                        <img
+                            src="data:{{ comment.image_mimetype }};base64,{{ comment.image | b64encode }}"
+                            alt="Comment image"
+                            class="mt-2 max-h-64 rounded-lg border border-gray-100 bg-slate-50"
+                        >
+                        {% endif %}
+                        {% endif %}
                         
                         <!-- Comment Actions -->
+                        {% if not comment.is_deleted %}
                         <div class="flex items-center gap-3 mt-2">
                             {% if current_user.is_authenticated %}
                             <!-- Like -->
@@ -216,9 +230,10 @@
                             {% endif %}
                             {% endif %}
                         </div>
+                        {% endif %}
                         
                         <!-- Report Form (hidden) -->
-                        {% if current_user.is_authenticated and current_user.id != comment.author_id %}
+                        {% if current_user.is_authenticated and current_user.id != comment.author_id and not comment.is_deleted %}
                         <div id="report-form-comment-{{ comment.id }}" class="hidden mt-2">
                             <form action="{{ url_for('social.report_comment', comment_id=comment.id) }}" method="POST" class="flex gap-2">
                                 <input type="text" name="reason" placeholder="Reason..." required
@@ -228,7 +243,7 @@
                         </div>
                         {% endif %}
                     </div>
-                    {% if current_user.is_authenticated and (current_user.id == comment.author_id or current_user.is_admin()) %}
+                    {% if not comment.is_deleted and current_user.is_authenticated and (current_user.id == comment.author_id or current_user.is_admin()) %}
                     <form action="{{ url_for('social.delete_comment', comment_id=comment.id) }}" method="POST"
                           onsubmit="return confirm('Delete this comment?')">
                         <button type="submit" class="text-xs text-gray-400 hover:text-red-500 transition">Delete</button>
@@ -237,21 +252,25 @@
                 </div>
                 
                 <!-- Reply Form (Hidden by default) -->
-                {% if current_user.is_authenticated %}
-                <form id="reply-form-{{ comment.id }}" action="{{ url_for('social.reply_comment', comment_id=comment.id) }}" method="POST" 
+                {% if not comment.is_deleted and current_user.is_authenticated %}
+                <form id="reply-form-{{ comment.id }}" action="{{ url_for('social.reply_comment', comment_id=comment.id) }}" method="POST" enctype="multipart/form-data"
                       class="hidden mt-3 ml-11">
-                    <div class="flex gap-2">
-                        <input type="text" name="body" placeholder="Write a reply..." required
+                    <div class="space-y-2">
+                        <input type="text" name="body" placeholder="Write a reply..."
                                class="flex-grow border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:ring-1 focus:ring-ntu-blue">
-                        <button type="submit" class="bg-ntu-blue text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-blue-800 transition">
-                            Reply
-                        </button>
+                        <input type="file" name="image" accept="image/png, image/jpeg"
+                               class="block w-full text-xs text-slate-500">
+                        <div class="flex justify-end">
+                            <button type="submit" class="bg-ntu-blue text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-blue-800 transition">
+                                Reply
+                            </button>
+                        </div>
                     </div>
                 </form>
                 {% endif %}
                 
                 <!-- Sub-comments (replies) -->
-                {% set replies = comment.replies.filter_by(is_deleted=False).all() %}
+                {% set replies = reply_map.get(comment.id, []) %}
                 {% if replies %}
                 <div class="ml-11 mt-3 space-y-2 border-l-2 border-slate-100 pl-3">
                     {% for reply in replies %}
@@ -272,7 +291,14 @@
                                 {% endif %}
                                 <span class="text-xs text-gray-400">· {{ (reply.created_at | sgt).strftime('%m-%d %H:%M') }}</span>
                             </div>
-                            <p class="text-slate-600 text-xs mt-0.5">{{ reply.body }}</p>
+                            <p class="text-slate-600 text-xs mt-0.5 whitespace-pre-wrap">{{ reply.body }}</p>
+                            {% if reply.image %}
+                            <img
+                                src="data:{{ reply.image_mimetype }};base64,{{ reply.image | b64encode }}"
+                                alt="Reply image"
+                                class="mt-2 max-h-56 rounded-lg border border-gray-100 bg-slate-50"
+                            >
+                            {% endif %}
                             
                             <!-- Reply to reply -->
                             {% if current_user.is_authenticated %}
@@ -291,14 +317,18 @@
                     
                     <!-- Reply to reply form -->
                     {% if current_user.is_authenticated %}
-                    <form id="reply-form-{{ reply.id }}" action="{{ url_for('social.reply_comment', comment_id=reply.id) }}" method="POST" 
+                    <form id="reply-form-{{ reply.id }}" action="{{ url_for('social.reply_comment', comment_id=reply.id) }}" method="POST" enctype="multipart/form-data"
                           class="hidden ml-8">
-                        <div class="flex gap-2">
-                            <input type="text" name="body" placeholder="Reply to {{ reply.author.nickname or reply.author.username }}..." required
+                        <div class="space-y-2">
+                            <input type="text" name="body" placeholder="Reply to {{ reply.author.nickname or reply.author.username }}..."
                                    class="flex-grow border border-gray-200 rounded-lg px-2 py-1 text-xs focus:ring-1 focus:ring-ntu-blue">
-                            <button type="submit" class="bg-ntu-blue text-white px-2 py-1 rounded-lg text-xs font-medium hover:bg-blue-800 transition">
-                                Reply
-                            </button>
+                            <input type="file" name="image" accept="image/png, image/jpeg"
+                                   class="block w-full text-xs text-slate-500">
+                            <div class="flex justify-end">
+                                <button type="submit" class="bg-ntu-blue text-white px-2 py-1 rounded-lg text-xs font-medium hover:bg-blue-800 transition">
+                                    Reply
+                                </button>
+                            </div>
                         </div>
                     </form>
                     {% endif %}
@@ -313,9 +343,12 @@
         
         <!-- New Comment (at bottom) -->
         {% if current_user.is_authenticated %}
-        <form action="{{ url_for('social.create_comment', post_id=post.id) }}" method="POST" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-            <textarea name="body" rows="3" placeholder="Write a comment..." required
+        <form action="{{ url_for('social.create_comment', post_id=post.id) }}" method="POST" enctype="multipart/form-data" class="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+            <textarea name="body" rows="3" placeholder="Write a comment..."
                       class="w-full border-0 bg-slate-50 rounded-lg p-3 text-sm focus:ring-1 focus:ring-ntu-blue resize-none"></textarea>
+            <div class="mt-2">
+                <input type="file" name="image" accept="image/png, image/jpeg" class="block w-full text-xs text-slate-500">
+            </div>
             <div class="flex justify-end mt-2">
                 <button type="submit" class="bg-ntu-blue text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-800 transition">
                     Post Comment

@@ -12,6 +12,24 @@ from sqlalchemy import or_, and_, func
 from sqlalchemy.exc import IntegrityError
 
 social_bp = Blueprint('social', __name__, url_prefix='/social')
+ALLOWED_IMAGE_MIME_TYPES = {'image/jpeg', 'image/png'}
+
+
+def parse_uploaded_image(file_storage):
+    if not file_storage or not file_storage.filename:
+        return None, None, None
+
+    mimetype = (file_storage.mimetype or '').lower()
+    if mimetype not in ALLOWED_IMAGE_MIME_TYPES:
+        return None, None, 'Invalid image format. Only JPEG and PNG are allowed.'
+
+    max_size = int(current_app.config.get('MAX_CONTENT_LENGTH') or (2 * 1024 * 1024))
+    image_data = file_storage.read(max_size + 1)
+    if len(image_data) > max_size:
+        size_mb = max_size // (1024 * 1024)
+        return None, None, f'Image is too large. Please upload a file smaller than {size_mb}MB.'
+
+    return image_data, mimetype, None
 
 
 # ============== Permission Decorators ==============
@@ -93,8 +111,22 @@ def post_detail(post_id):
     db.session.commit()
     db.session.refresh(post)
     
-    # Get non-deleted comments
-    comments = post.comments.filter_by(is_deleted=False).order_by(Comment.created_at.asc()).all()
+    all_comments = post.comments.order_by(Comment.created_at.asc()).all()
+    visible_comments = [comment for comment in all_comments if not comment.is_deleted]
+
+    # Keep top-level deleted comments as tombstones when they still have visible replies.
+    reply_map = {}
+    for comment in visible_comments:
+        if comment.parent_id is not None:
+            reply_map.setdefault(comment.parent_id, []).append(comment)
+
+    top_comments = []
+    for comment in all_comments:
+        if comment.parent_id is not None:
+            continue
+        if comment.is_deleted and not reply_map.get(comment.id):
+            continue
+        top_comments.append(comment)
     
     # Check if current user liked/saved post
     user_liked = False
@@ -103,7 +135,7 @@ def post_detail(post_id):
     comment_like_counts = {}
     
     # Get comment IDs for this post
-    comment_ids = [c.id for c in comments]
+    comment_ids = [c.id for c in visible_comments]
     
     # Get comment like counts
     if comment_ids:
@@ -131,7 +163,9 @@ def post_detail(post_id):
     
     return render_template('social/post_detail.html', 
                            post=post, 
-                           comments=comments,
+                           top_comments=top_comments,
+                           reply_map=reply_map,
+                           comment_count=len(visible_comments),
                            user_liked=user_liked,
                            user_collected=user_collected,
                            liked_comment_ids=liked_comment_ids,
@@ -151,6 +185,11 @@ def create_post():
     title = request.form.get('title', '').strip()
     body = request.form.get('body', '').strip()
     category = request.form.get('category', 'general')
+    image_data, image_mimetype, image_error = parse_uploaded_image(request.files.get('image'))
+
+    if image_error:
+        flash(image_error, 'error')
+        return redirect(url_for('social.create_post'))
     
     if not title or not body:
         flash('Title and content cannot be empty.', 'error')
@@ -160,7 +199,9 @@ def create_post():
         title=title,
         body=body,
         category=category,
-        author_id=current_user.id
+        author_id=current_user.id,
+        image=image_data,
+        image_mimetype=image_mimetype,
     )
     db.session.add(post)
     db.session.commit()
@@ -189,6 +230,21 @@ def edit_post(post_id):
     post.title = request.form.get('title', '').strip() or post.title
     post.body = request.form.get('body', '').strip() or post.body
     post.category = request.form.get('category', post.category)
+
+    if request.form.get('remove_image') == '1':
+        post.image = None
+        post.image_mimetype = None
+        post.image_url = None
+    else:
+        image_data, image_mimetype, image_error = parse_uploaded_image(request.files.get('image'))
+        if image_error:
+            flash(image_error, 'error')
+            return redirect(url_for('social.edit_post', post_id=post_id))
+        if image_data is not None:
+            post.image = image_data
+            post.image_mimetype = image_mimetype
+            post.image_url = None
+
     db.session.commit()
     
     flash('Updated successfully!', 'success')
@@ -227,12 +283,19 @@ def create_comment(post_id):
     post = Post.query.filter_by(id=post_id, is_deleted=False).first_or_404()
     
     body = request.form.get('body', '').strip()
-    if not body:
+    image_data, image_mimetype, image_error = parse_uploaded_image(request.files.get('image'))
+    if image_error:
+        flash(image_error, 'error')
+        return redirect(url_for('social.post_detail', post_id=post_id))
+
+    if not body and image_data is None:
         flash('Comment cannot be empty.', 'error')
         return redirect(url_for('social.post_detail', post_id=post_id))
     
     comment = Comment(
         body=body,
+        image=image_data,
+        image_mimetype=image_mimetype,
         author_id=current_user.id,
         post_id=post_id
     )
@@ -494,7 +557,12 @@ def reply_comment(comment_id):
     parent_comment = Comment.query.filter_by(id=comment_id, is_deleted=False).first_or_404()
     
     body = request.form.get('body', '').strip()
-    if not body:
+    image_data, image_mimetype, image_error = parse_uploaded_image(request.files.get('image'))
+    if image_error:
+        flash(image_error, 'error')
+        return redirect(url_for('social.post_detail', post_id=parent_comment.post_id))
+
+    if not body and image_data is None:
         flash('Reply cannot be empty.', 'error')
         return redirect(url_for('social.post_detail', post_id=parent_comment.post_id))
     
@@ -504,6 +572,8 @@ def reply_comment(comment_id):
     
     reply = Comment(
         body=body,
+        image=image_data,
+        image_mimetype=image_mimetype,
         author_id=current_user.id,
         post_id=parent_comment.post_id,
         parent_id=top_parent_id,

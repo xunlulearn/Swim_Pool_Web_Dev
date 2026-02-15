@@ -7,6 +7,7 @@
 
 * **Profile Management**:
     *   **Nickname & Avatar**: Users can freely modify their nickname and avatar after login. No verification required.
+    *   **Avatar Upload Constraints**: JPEG/PNG only, max size follows server `MAX_CONTENT_LENGTH` (default 2MB).
 
 * **Account Security**:
     *   **Password Modification**:
@@ -15,3 +16,11 @@
         *   User must enter the OTP to verify identity.
         *   Upon success, user can set a new password.
         *   **Security Rule**: Password cannot be changed without OTP verification.
+    *   **OTP Brute-force Protection**:
+        *   OTP verification tracks failed attempts in session state.
+        *   On too many failures, OTP is invalidated and verification is temporarily locked.
+
+* **Web Security Controls**:
+    *   **CSRF Protection**:
+        *   All state-changing requests (`POST/PUT/PATCH/DELETE`) require CSRF token validation.
+        *   Tokens are issued to templates and also accepted via request header for JS `fetch`.
