@@ -11,6 +11,26 @@ def env_bool(name, default=False):
     return value.lower() in {'true', 'on', '1', 'yes'}
 
 
+def env_int(name, default=0):
+    value = os.environ.get(name)
+    if value is None or value.strip() == '':
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+def env_float(name, default=0.0):
+    value = os.environ.get(name)
+    if value is None or value.strip() == '':
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-key-please-change'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
@@ -28,6 +48,17 @@ class Config:
     REMEMBER_COOKIE_SECURE = False
     WTF_CSRF_TIME_LIMIT = int(os.environ.get('WTF_CSRF_TIME_LIMIT') or 3600)
     MAX_CONTENT_LENGTH = int(os.environ.get('MAX_CONTENT_LENGTH') or (2 * 1024 * 1024))
+    OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
+    OPENAI_BASE_URL = os.environ.get('OPENAI_BASE_URL')
+    OPENAI_CHAT_MODEL = os.environ.get('OPENAI_CHAT_MODEL') or 'gpt-4o-mini'
+    OPENAI_EMBED_MODEL = os.environ.get('OPENAI_EMBED_MODEL') or 'text-embedding-3-small'
+    SUPABASE_URL = os.environ.get('SUPABASE_URL')
+    SUPABASE_SERVICE_ROLE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY')
+    SUPABASE_DOCS_TABLE = os.environ.get('SUPABASE_DOCS_TABLE') or 'pool_documents'
+    SUPABASE_MATCH_FUNCTION = os.environ.get('SUPABASE_MATCH_FUNCTION') or 'match_documents'
+    CHATBOT_TOP_K = env_int('CHATBOT_TOP_K', 3)
+    CHATBOT_MIN_SCORE = env_float('CHATBOT_MIN_SCORE', 0.65)
+    CHATBOT_MAX_CONTEXT_CHARS = env_int('CHATBOT_MAX_CONTEXT_CHARS', 4000)
 
 class DevelopmentConfig(Config):
     DEBUG = True

@@ -95,3 +95,8 @@ Contributions are welcome! Please feel free to verify bugs or submit Pull Reques
 
 ## 📄 License
 This project is licensed under the MIT License.
+
+---
+
+## Chatbot Deployment
+For the new LangGraph/LangChain chatbot deployment flow, see CHATBOT_DEPLOY.md.

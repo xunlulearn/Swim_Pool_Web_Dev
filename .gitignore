@@ -24,6 +24,8 @@ wheels/
 venv/
 .env
 .venv/
+.pydeps/
+.pydeps_cmd/
 
 # Environment variables
 .env

@@ -160,6 +160,9 @@ def create_app(config_name=None):
     from .blueprints.live_status import live_status_bp
     app.register_blueprint(live_status_bp)
 
+    from .blueprints.chatbot import chatbot_bp
+    app.register_blueprint(chatbot_bp)
+
     @app.route('/')
     def index():
         return render_template('index.html')
