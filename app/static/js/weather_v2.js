@@ -13,6 +13,12 @@ document.addEventListener('DOMContentLoaded', () => {
         dist: document.getElementById('metric-distance'),
         count: document.getElementById('metric-count'),
         rainfall: document.getElementById('metric-rainfall'),
+        distCard: document.getElementById('metric-distance-card'),
+        countCard: document.getElementById('metric-count-card'),
+        rainfallCard: document.getElementById('metric-rainfall-card'),
+        legendDistancePointer: document.getElementById('legend-distance-pointer'),
+        legendRainfallPointer: document.getElementById('legend-rainfall-pointer'),
+        legendCountPointer: document.getElementById('legend-count-pointer'),
         updated: document.getElementById('last-updated')
     };
 
@@ -40,12 +46,260 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    const metricCardRiskClasses = {
+        safe: ['border-emerald-200', 'from-emerald-50', 'to-green-100'],
+        caution: ['border-amber-200', 'from-amber-50', 'to-yellow-100'],
+        danger: ['border-rose-200', 'from-rose-50', 'to-red-100'],
+        unknown: ['border-slate-200', 'from-slate-50', 'to-slate-100']
+    };
+
+    const metricValueRiskClasses = {
+        safe: 'text-emerald-800',
+        caution: 'text-amber-800',
+        danger: 'text-rose-700',
+        unknown: 'text-slate-700'
+    };
+
+    const allMetricCardRiskClasses = Object.values(metricCardRiskClasses).flat();
+    const allMetricValueRiskClasses = Object.values(metricValueRiskClasses);
+
     function toPlainMessage(message) {
         let text = String(message || '');
         text = text.split('<br />').join('\n');
         text = text.split('<br/>').join('\n');
         text = text.split('<br>').join('\n');
         return text;
+    }
+
+    function normalizeForMatch(input) {
+        return String(input || '')
+            .replace(/[–—]/g, '-')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function translateMessageToChinese(englishMessage) {
+        if (!englishMessage) {
+            return '';
+        }
+
+        const msg = normalizeForMatch(englishMessage);
+        if (!msg) {
+            return '';
+        }
+
+        let match = msg.match(/^Pool Closed - Outside Operating Hours \((.+)\)$/);
+        if (match) {
+            const timePart = match[1]
+                .replace('Weekend/Public Holiday', '周末/公共假日')
+                .replace('Weekday', '工作日');
+            return `泳池关闭 - 非运营时间（${timePart}）`;
+        }
+        if (msg.includes('Outside Operating Hours')) {
+            return '泳池关闭 - 非运营时间';
+        }
+
+        match = msg.match(/^Manual report consensus: Pool (OPEN|CLOSED)$/);
+        if (match) {
+            const statusText = match[1] === 'OPEN' ? '开放' : '关闭';
+            return `人工汇报共识：泳池${statusText}`;
+        }
+        if (msg.includes('Manual report consensus')) {
+            return '人工汇报共识';
+        }
+
+        match = msg.match(/^Pool Closed due to Lightning Alert \(Nearest (.+)\)$/);
+        if (match) {
+            return `泳池因雷电警报关闭（最近雷电距离 ${match[1]}）`;
+        }
+
+        match = msg.match(/^Pool Closed due to Lightning Alert \(Estimated (\d+) min to reopen\)$/);
+        if (match) {
+            return `泳池因雷电警报关闭（预计 ${match[1]} 分钟后重开）`;
+        }
+
+        match = msg.match(/^Pool Closed due to Heavy Rain \((.+)\)$/);
+        if (match) {
+            return `泳池因强降雨关闭（${match[1]}）`;
+        }
+
+        match = msg.match(/^Pool Closed due to Heavy Rain \(Estimated (\d+) min to reopen\)$/);
+        if (match) {
+            return `泳池因强降雨关闭（预计 ${match[1]} 分钟后重开）`;
+        }
+
+        if (msg === 'Pool is Open') {
+            return '泳池开放';
+        }
+        if (msg.includes('Pool is Open')) {
+            return '泳池开放';
+        }
+        if (msg === 'Weather data temporarily unavailable') {
+            return '天气数据暂时不可用';
+        }
+        if (msg.includes('Weather data temporarily unavailable')) {
+            return '天气数据暂时不可用';
+        }
+        if (msg === 'Unable to reach weather service.') {
+            return '无法连接天气服务。';
+        }
+        if (msg === 'Weather request timeout.') {
+            return '天气服务请求超时。';
+        }
+
+        return '';
+    }
+
+    function toBilingualMessage(message) {
+        const raw = toPlainMessage(message).trim();
+        if (!raw) {
+            return '';
+        }
+
+        const lines = raw
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean);
+
+        const existingChinese = lines.find((line) => /[\u4e00-\u9fff]/.test(line));
+        const englishMessage = lines.find((line) => /[A-Za-z]/.test(line)) || raw;
+        const chineseMessage = existingChinese || translateMessageToChinese(englishMessage);
+
+        if (!chineseMessage) {
+            return englishMessage;
+        }
+        return `${englishMessage}\n${chineseMessage}`;
+    }
+
+    function toNumeric(value) {
+        if (value === null || value === undefined || value === '') {
+            return null;
+        }
+        const num = Number(value);
+        return Number.isFinite(num) ? num : null;
+    }
+
+    function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    function formatDistance(distanceKm) {
+        if (distanceKm === null) {
+            return '-- km';
+        }
+        if (distanceKm >= 15) {
+            return '>15km';
+        }
+        const rounded = Math.round(distanceKm * 10) / 10;
+        return `${rounded.toFixed(1)} km`;
+    }
+
+    function classifyLightningDistance(distanceKm) {
+        if (distanceKm === null) {
+            return 'unknown';
+        }
+        if (distanceKm <= 8) {
+            return 'danger';
+        }
+        if (distanceKm <= 15) {
+            return 'caution';
+        }
+        return 'safe';
+    }
+
+    function classifyRainfall(rainfallRate) {
+        if (rainfallRate === null) {
+            return 'unknown';
+        }
+        if (rainfallRate > 5) {
+            return 'danger';
+        }
+        if (rainfallRate > 2) {
+            return 'caution';
+        }
+        return 'safe';
+    }
+
+    function classifyLightningCount(lightningCount) {
+        if (lightningCount === null) {
+            return 'unknown';
+        }
+        if (lightningCount === 0) {
+            return 'safe';
+        }
+        if (lightningCount <= 30) {
+            return 'caution';
+        }
+        return 'danger';
+    }
+
+    function getDistancePointerPercent(distanceKm) {
+        if (distanceKm === null) {
+            return 50;
+        }
+        const normalizedRisk = 1 - clamp(distanceKm, 0, 20) / 20;
+        return clamp(normalizedRisk * 100, 0, 100);
+    }
+
+    function getRainfallPointerPercent(rainfallRate) {
+        if (rainfallRate === null) {
+            return 50;
+        }
+        const normalizedRisk = clamp(rainfallRate, 0, 10) / 10;
+        return clamp(normalizedRisk * 100, 0, 100);
+    }
+
+    function getLightningCountPointerPercent(lightningCount) {
+        if (lightningCount === null) {
+            return 50;
+        }
+        const normalizedRisk = clamp(lightningCount, 0, 120) / 120;
+        return clamp(normalizedRisk * 100, 0, 100);
+    }
+
+    function setLegendPointer(pointerEl, percent, isUnknown = false) {
+        if (!pointerEl) {
+            return;
+        }
+        pointerEl.style.left = `${percent}%`;
+        pointerEl.classList.toggle('opacity-40', isUnknown);
+    }
+
+    function applyLegendPointers(distanceKm, lightningCount, rainfallRate) {
+        setLegendPointer(
+            ui.legendDistancePointer,
+            getDistancePointerPercent(distanceKm),
+            distanceKm === null
+        );
+        setLegendPointer(
+            ui.legendCountPointer,
+            getLightningCountPointerPercent(lightningCount),
+            lightningCount === null
+        );
+        setLegendPointer(
+            ui.legendRainfallPointer,
+            getRainfallPointerPercent(rainfallRate),
+            rainfallRate === null
+        );
+    }
+
+    function applyMetricRisk(cardEl, valueEl, risk) {
+        if (!cardEl || !valueEl) {
+            return;
+        }
+
+        allMetricCardRiskClasses.forEach((cls) => cardEl.classList.remove(cls));
+        allMetricValueRiskClasses.forEach((cls) => valueEl.classList.remove(cls));
+
+        metricCardRiskClasses[risk].forEach((cls) => cardEl.classList.add(cls));
+        valueEl.classList.add(metricValueRiskClasses[risk]);
+    }
+
+    function applyUnknownMetricStyles() {
+        applyMetricRisk(ui.distCard, ui.dist, 'unknown');
+        applyMetricRisk(ui.countCard, ui.count, 'unknown');
+        applyMetricRisk(ui.rainfallCard, ui.rainfall, 'unknown');
+        applyLegendPointers(null, null, null);
     }
 
     async function fetchWithTimeout(url, timeoutMs) {
@@ -77,18 +331,23 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // 2. Update Message
             ui.message.classList.add('whitespace-pre-line');
-            ui.message.textContent = toPlainMessage(data.message);
+            ui.message.textContent = toBilingualMessage(data.message);
             
             // 3. Update Metrics
             const details = data.details || {};
             // Handle different field names from backend versions
-            const dist = details.distance || details.lightning_dist || details.min_distance_km;
-            const count = details.lightning_count;
-            const rain = details.rainfall_rate;
+            const dist = toNumeric(details.distance ?? details.lightning_dist ?? details.min_distance_km);
+            const count = toNumeric(details.lightning_count);
+            const rain = toNumeric(details.rainfall_rate);
             
-            ui.dist.textContent = (dist !== null && dist !== undefined) ? `${dist} km` : '> 15 km';
-            ui.count.textContent = (count !== null && count !== undefined) ? count : '--';
-            ui.rainfall.textContent = (rain !== null && rain !== undefined) ? `${rain.toFixed(1)} mm/h` : '-- mm/h';
+            ui.dist.textContent = formatDistance(dist);
+            ui.count.textContent = (count !== null) ? String(Math.round(count)) : '--';
+            ui.rainfall.textContent = (rain !== null) ? `${rain.toFixed(1)} mm/h` : '-- mm/h';
+
+            applyMetricRisk(ui.distCard, ui.dist, classifyLightningDistance(dist));
+            applyMetricRisk(ui.countCard, ui.count, classifyLightningCount(count));
+            applyMetricRisk(ui.rainfallCard, ui.rainfall, classifyRainfall(rain));
+            applyLegendPointers(dist, count, rain);
             
             // 4. Update Visuals (Icon, Ring, Background)
             ui.ring.className = `flex items-center justify-center w-24 h-24 rounded-full ring-4 transition-all duration-500 ${config.ringClass}`;
@@ -102,9 +361,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (error) {
             console.error('Weather fetch error:', error);
-            ui.message.textContent = "Unable to reach weather service.";
+            ui.message.textContent = toBilingualMessage('Unable to reach weather service.');
             ui.text.textContent = "OFFLINE";
             ui.text.className = "text-gray-400";
+            ui.dist.textContent = '-- km';
+            ui.count.textContent = '--';
+            ui.rainfall.textContent = '-- mm/h';
+            applyUnknownMetricStyles();
         }
     }
 

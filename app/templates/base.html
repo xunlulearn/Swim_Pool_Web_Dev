@@ -12,8 +12,8 @@
             theme: {
                 extend: {
                     colors: {
-                        'ntu-red': '#C20430',
-                        'ntu-blue': '#1D4F91',
+                        "ntu-red": "#C20430",
+                        "ntu-blue": "#1D4F91",
                     }
                 }
             }
@@ -21,47 +21,71 @@
     </script>
     <!-- Custom CSS (compiled path for production) -->
     <!-- <link href="{{ url_for('static', filename='dist/output.css') }}" rel="stylesheet"> -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script>
-        // Tailwind configuration for Inter font
-        tailwind.config.theme.extend.fontFamily = { 'inter': ['Inter', 'sans-serif'] };
+        // Tailwind configuration for Plus Jakarta Sans font
+        tailwind.config.theme.extend.fontFamily = {
+            jakarta: ["Plus Jakarta Sans", "sans-serif"],
+            inter: ["Plus Jakarta Sans", "sans-serif"],
+        };
     </script>
     {% block head %}{% endblock %}
 </head>
-<body class="font-inter bg-slate-50 text-slate-900 min-h-screen flex flex-col">
+<body class="font-jakarta bg-slate-50 text-slate-900 min-h-screen flex flex-col">
 
     <!-- Navigation -->
-    <nav class="bg-white/90 backdrop-blur-md sticky top-0 z-50 border-b border-gray-200">
+    {% set endpoint = request.endpoint or '' %}
+    <nav class="sticky top-0 z-50 border-b border-slate-200 bg-white/90 backdrop-blur-xl">
         <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex flex-col md:flex-row justify-between md:items-center h-auto md:h-16 py-3 md:py-0 gap-3 md:gap-0">
+            <div class="flex flex-col gap-3 py-3 md:h-16 md:flex-row md:items-center md:justify-between md:py-0">
                 <div class="flex items-center">
-                    <a href="{{ url_for('index') }}" class="flex-shrink-0 flex items-center gap-2">
+                    <a href="{{ url_for('index') }}" class="flex-shrink-0 flex items-center gap-2.5 rounded-xl px-2 py-1 transition hover:bg-slate-100/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ntu-blue/40">
                         <!-- NTU Logo -->
-                        <img src="{{ url_for('static', filename='img/logo.png') }}" alt="NTU Pool Logo" class="w-10 h-10 rounded-lg">
-                        <span class="font-bold text-xl tracking-tight text-slate-800">NTU Pool</span>
+                        <img src="{{ url_for('static', filename='img/logo.png') }}" alt="NTU Pool Logo" class="h-10 w-10 rounded-lg">
+                        <span class="text-xl font-bold tracking-tight text-slate-800">NTU Pool</span>
                     </a>
                 </div>
-                <div class="flex items-center gap-4">
-                    <a href="{{ url_for('index') }}" class="text-slate-600 hover:text-ntu-blue font-medium transition">Home</a>
-                    <a href="{{ url_for('social.feed') }}" class="text-slate-600 hover:text-ntu-blue font-medium transition">Community</a>
+                <div class="flex flex-wrap items-center justify-end gap-2">
+                    <div class="flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 p-1">
+                        <a
+                            href="{{ url_for('index') }}"
+                            class="inline-flex min-h-[40px] items-center rounded-full px-3 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ntu-blue/40 {{ 'bg-white text-ntu-blue shadow-sm' if endpoint == 'index' else 'text-slate-600 hover:bg-white hover:text-ntu-blue' }}"
+                        >
+                            Home
+                        </a>
+                        <a
+                            href="{{ url_for('social.feed') }}"
+                            class="inline-flex min-h-[40px] items-center rounded-full px-3 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ntu-blue/40 {{ 'bg-white text-ntu-blue shadow-sm' if endpoint.startswith('social.feed') or endpoint.startswith('social.post') else 'text-slate-600 hover:bg-white hover:text-ntu-blue' }}"
+                        >
+                            Community
+                        </a>
+                    </div>
                     {% if current_user and current_user.is_authenticated %}
-                        <a href="{{ url_for('social.profile') }}" class="text-slate-600 hover:text-ntu-blue font-medium transition relative">
+                        <a
+                            href="{{ url_for('social.profile') }}"
+                            class="relative inline-flex min-h-[40px] items-center rounded-full px-3 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ntu-blue/40 {{ 'bg-ntu-blue text-white shadow-sm' if endpoint.startswith('social.profile') or endpoint.startswith('social.messages') else 'border border-slate-200 bg-slate-100/80 text-slate-700 hover:bg-slate-200/70 hover:text-ntu-blue' }}"
+                        >
                             Profile
                             {% if unread_message_count > 0 %}
-                            <span class="absolute -top-1 -right-3 bg-red-500 text-white text-xs w-4 h-4 flex items-center justify-center rounded-full">{{ unread_message_count if unread_message_count < 10 else '9+' }}</span>
+                            <span class="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">{{ unread_message_count if unread_message_count < 10 else '9+' }}</span>
                             {% endif %}
                         </a>
                         {% if current_user.is_admin() %}
-                        <a href="{{ url_for('social.admin_reports') }}" class="text-purple-600 hover:text-purple-800 font-medium transition">Admin</a>
+                        <a
+                            href="{{ url_for('social.admin_reports') }}"
+                            class="inline-flex min-h-[40px] items-center rounded-full bg-violet-50 px-3 py-2 text-sm font-semibold text-violet-700 transition hover:bg-violet-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300"
+                        >
+                            Admin
+                        </a>
                         {% endif %}
                         <form action="{{ url_for('auth.logout') }}" method="POST" class="inline">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <button type="submit" class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition">
+                            <button type="submit" class="inline-flex min-h-[40px] cursor-pointer items-center rounded-full border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
                                 Logout
                             </button>
                         </form>
                     {% else %}
-                        <a href="{{ url_for('auth.login') }}" class="text-sm font-medium text-ntu-blue hover:text-blue-800 transition">Login</a>
+                        <a href="{{ url_for('auth.login') }}" class="inline-flex min-h-[40px] items-center rounded-full bg-ntu-blue px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ntu-blue/40">Login</a>
                     {% endif %}
                 </div>
             </div>
@@ -87,22 +111,31 @@
     </main>
 
     <!-- Footer -->
-    <footer class="bg-white border-t border-gray-200 mt-auto">
-        <div class="max-w-4xl mx-auto py-6 px-4 sm:px-6 md:flex md:items-center md:justify-between">
-            <div class="mt-8 md:mt-0 md:order-1">
-                <p class="text-center text-xs text-gray-500">
+    <footer class="mt-auto border-t border-slate-200 bg-gradient-to-b from-sky-50 via-white to-slate-50">
+        <div class="mx-auto max-w-4xl px-4 py-8 sm:px-6">
+            <div class="rounded-2xl border border-slate-200/80 bg-white/85 p-5 shadow-sm sm:p-6">
+                <div class="grid gap-4 md:grid-cols-2">
+                    <section class="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Open Source</p>
+                        <p class="mt-1 text-sm leading-6 text-slate-700">
+                            This project is permanently open source and free for the community.
+                        </p>
+                        <a href="https://github.com/xunlulearn/Swim_Pool_Web_Dev" class="mt-2 inline-block break-all text-sm font-semibold text-ntu-blue transition hover:text-blue-800 hover:underline" target="_blank" rel="noopener noreferrer">
+                            github.com/xunlulearn/Swim_Pool_Web_Dev
+                        </a>
+                    </section>
+                    <section class="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Contact</p>
+                        <p class="mt-1 text-sm leading-6 text-slate-700">
+                            WeChat: <span class="font-semibold text-slate-800">cm326103</span>
+                            <br>
+                            Gmail: <a class="font-semibold text-ntu-blue transition hover:text-blue-800 hover:underline" href="mailto:xunlulearn@gmail.com">xunlulearn@gmail.com</a>
+                        </p>
+                    </section>
+                </div>
+                <p class="mt-5 text-center text-xs text-slate-500">
                     &copy; 2024 NTU Swimming Pool Service. Data sourced from NEA.
                 </p>
-                <div class="mt-4 space-y-3">
-                    <p class="text-center text-xs text-gray-500 leading-relaxed">
-                        ① This project is permanently open-source and free. GitHub: <a href="https://github.com/xunlulearn/Swim_Pool_Web_Dev" class="text-ntu-blue hover:underline break-all" target="_blank">https://github.com/xunlulearn/Swim_Pool_Web_Dev</a><br>
-                        If you like it, please give the author a star!
-                    </p>
-                    <p class="text-center text-xs text-gray-500 leading-relaxed">
-                        ② Feel free to connect and learn together. Author's WeChat: cm326103<br>
-                        Gmail: xunlulearn@gmail.com
-                    </p>
-                </div>
             </div>
         </div>
     </footer>
@@ -117,14 +150,44 @@
     <button
         id="chatbot-launcher"
         type="button"
-        aria-label="Open NTU Pool Assistant"
+        aria-label="Open NTU Pool AI Assistant"
         aria-expanded="false"
-        class="fixed bottom-5 right-5 sm:bottom-6 sm:right-6 z-50 inline-flex h-14 w-14 cursor-pointer items-center justify-center rounded-2xl bg-gradient-to-br from-ntu-blue to-blue-800 text-white shadow-xl shadow-blue-900/30 transition-all duration-200 hover:scale-105 hover:shadow-2xl hover:shadow-blue-900/40 focus:outline-none focus:ring-2 focus:ring-ntu-blue/40 focus:ring-offset-2"
+        class="fixed bottom-5 right-5 z-50 inline-flex h-14 w-14 cursor-pointer items-center justify-center rounded-2xl bg-gradient-to-br from-ntu-blue to-sky-700 text-white shadow-xl shadow-blue-900/30 transition-all duration-200 hover:scale-[1.03] hover:shadow-2xl hover:shadow-blue-900/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ntu-blue/40 focus-visible:ring-offset-2 motion-reduce:transform-none motion-reduce:transition-none sm:bottom-6 sm:right-6"
     >
-        <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h8M8 14h5m-8 7l2.8-2.8a1 1 0 01.7-.29H19a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h1.5a1 1 0 01.7.29L10 21z"></path>
+        <svg class="h-7 w-7" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 4v2m-8 5h2m12 0h2M7 8h10a3 3 0 013 3v4a3 3 0 01-3 3H7a3 3 0 01-3-3v-4a3 3 0 013-3z"></path>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 13h.01M15 13h.01M9.5 16h5"></path>
         </svg>
     </button>
+
+    <aside
+        id="chatbot-hint"
+        class="hidden fixed bottom-24 right-3 z-50 w-[min(20rem,calc(100vw-1.5rem))] rounded-2xl border border-slate-200 bg-white/95 p-3 text-slate-700 shadow-xl backdrop-blur sm:bottom-24 sm:right-6"
+        aria-live="polite"
+    >
+        <div class="absolute -bottom-2 right-8 h-4 w-4 rotate-45 border-b border-r border-slate-200 bg-white/95"></div>
+        <p class="text-sm font-semibold text-slate-800">Try the AI assistant</p>
+        <p class="mt-1 text-xs leading-5 text-slate-600">
+            Click the robot button to chat about pool status, weather risk, and community updates.
+        </p>
+        <div class="mt-3 flex items-center justify-between gap-2">
+            <label for="chatbot-hint-never" class="inline-flex cursor-pointer items-center gap-2 text-xs leading-5 text-slate-600">
+                <input
+                    id="chatbot-hint-never"
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-slate-300 text-ntu-blue focus:ring-2 focus:ring-ntu-blue/40"
+                >
+                Don't show this again
+            </label>
+            <button
+                id="chatbot-hint-dismiss"
+                type="button"
+                class="inline-flex min-h-[40px] items-center rounded-lg border border-slate-200 px-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ntu-blue/40"
+            >
+                Close
+            </button>
+        </div>
+    </aside>
 
     <section
         id="chatbot-panel"
@@ -132,6 +195,7 @@
         aria-label="NTU Pool Assistant panel"
         data-authenticated="{{ 'true' if current_user.is_authenticated else 'false' }}"
         data-login-url="{{ url_for('auth.login') }}"
+        data-user-key="{{ ('user-' ~ current_user.id) if current_user.is_authenticated else 'guest' }}"
     >
         <div class="rounded-t-2xl bg-gradient-to-r from-slate-900 via-slate-800 to-blue-900 px-4 py-3 text-white">
             <div class="flex items-start justify-between gap-3">
@@ -204,16 +268,16 @@
     </section>
 
     {% block scripts %}{% endblock %}
-    <script src="{{ url_for('static', filename='js/chatbot.js', v='20260217-4') }}"></script>
+    <script src="{{ url_for('static', filename='js/chatbot.js', v='20260218-1') }}"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const token = document.querySelector('meta[name=\"csrf-token\"]')?.getAttribute('content');
+        document.addEventListener("DOMContentLoaded", () => {
+            const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");
             if (!token) return;
-            document.querySelectorAll('form[method=\"POST\"], form[method=\"post\"]').forEach((form) => {
-                if (form.querySelector('input[name=\"csrf_token\"]')) return;
-                const input = document.createElement('input');
-                input.type = 'hidden';
-                input.name = 'csrf_token';
+            document.querySelectorAll('form[method="POST"], form[method="post"]').forEach((form) => {
+                if (form.querySelector('input[name="csrf_token"]')) return;
+                const input = document.createElement("input");
+                input.type = "hidden";
+                input.name = "csrf_token";
                 input.value = token;
                 form.prepend(input);
             });

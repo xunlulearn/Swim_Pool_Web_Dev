@@ -37,29 +37,38 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!feedContainer) return;
         feedContainer.textContent = '';
 
-        if (!Array.isArray(reports) || reports.length === 0) {
-            const emptyItem = document.createElement('li');
-            emptyItem.className = 'text-sm text-gray-400 text-center py-2';
-            emptyItem.textContent = 'No recent reports.';
+        const latestReports = Array.isArray(reports) ? reports.slice(0, 10) : [];
+
+        if (latestReports.length === 0) {
+            const emptyItem = document.createElement('div');
+            emptyItem.className = 'rounded-xl border border-dashed border-slate-200 bg-white/80 px-4 py-5 text-center text-sm text-slate-500';
+            emptyItem.textContent = 'No recent reports yet.';
             feedContainer.appendChild(emptyItem);
             return;
         }
 
-        reports.forEach((report) => {
+        latestReports.forEach((report, index) => {
             const isOld = (new Date() - new Date(report.timestamp + 'Z')) > 2 * 60 * 60 * 1000;
-            const opacityClass = isOld ? 'opacity-40' : '';
-            const statusColor = report.status === 'Open' ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50';
-            const icon = report.status === 'Open' ? '[OPEN]' : '[CLOSED]';
+            const ageClass = isOld ? 'opacity-60 saturate-50' : '';
+            const isNewest = index === 0;
+            const isOpen = report.status === 'Open';
+
+            const statusColor = isOpen
+                ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border border-rose-200 bg-rose-50 text-rose-700';
+            const rowTone = isOpen
+                ? 'from-emerald-50/65 to-white border-emerald-100'
+                : 'from-rose-50/65 to-white border-rose-100';
 
             const row = document.createElement('div');
-            row.className = `flex items-center justify-between p-3 rounded-lg border border-gray-50 mb-2 ${opacityClass}`;
+            row.className = `mb-2 flex items-center justify-between rounded-xl border bg-gradient-to-r px-3 py-2 ${rowTone} ${ageClass} ${isNewest ? 'ring-1 ring-slate-200 shadow-sm' : ''}`;
 
             const left = document.createElement('div');
             left.className = 'flex items-center gap-3';
 
             const statusBadge = document.createElement('span');
-            statusBadge.className = `text-xs font-semibold px-2 py-1 rounded-full ${statusColor}`;
-            statusBadge.textContent = `${icon} ${report.status}`;
+            statusBadge.className = `rounded-full px-2 py-1 text-xs font-semibold ${statusColor}`;
+            statusBadge.textContent = report.status.toUpperCase();
 
             const userName = document.createElement('span');
             userName.className = 'text-sm font-medium text-slate-700';

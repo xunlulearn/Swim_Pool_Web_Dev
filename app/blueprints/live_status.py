@@ -1,19 +1,19 @@
-from flask import Blueprint, jsonify, request, abort
+from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 from app.models.report import PoolReport
 from app.extensions import db
-from datetime import datetime, timedelta
 
 live_status_bp = Blueprint('live_status', __name__, url_prefix='/api/live-status')
 
 @live_status_bp.route('/', methods=['GET'])
 def get_reports():
-    # Only show reports from last 24 hours to keep query light, 
-    # but frontend will dim > 2 hours.
-    since = datetime.utcnow() - timedelta(hours=24)
-    reports = PoolReport.query.filter(PoolReport.created_at >= since)\
-        .order_by(PoolReport.created_at.desc())\
-        .limit(10).all()
+    # Always show the latest 10 reports on the homepage feed.
+    reports = (
+        PoolReport.query
+        .order_by(PoolReport.created_at.desc())
+        .limit(10)
+        .all()
+    )
     
     results = []
     for r in reports:

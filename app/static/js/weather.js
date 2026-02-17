@@ -86,7 +86,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const count = details.lightning_count;
             const rain = details.rainfall_rate;
             
-            ui.dist.textContent = (dist !== null && dist !== undefined) ? `${dist} km` : '> 15 km';
+            if (dist !== null && dist !== undefined) {
+                ui.dist.textContent = Number(dist) >= 15 ? '>15km' : `${dist} km`;
+            } else {
+                ui.dist.textContent = '-- km';
+            }
             ui.count.textContent = (count !== null && count !== undefined) ? count : '--';
             ui.rainfall.textContent = (rain !== null && rain !== undefined) ? `${rain.toFixed(1)} mm/h` : '-- mm/h';
             

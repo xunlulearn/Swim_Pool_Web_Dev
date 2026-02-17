@@ -24,6 +24,24 @@ def create_app(config_name=None):
     app = Flask(__name__)
     app.config.from_object(config[config_name])
 
+    # Harden DB behavior in production-like postgres deployments:
+    # avoid long hangs on connection/session issues.
+    db_uri = app.config.get('SQLALCHEMY_DATABASE_URI') or ''
+    if db_uri.startswith('postgresql'):
+        engine_options = dict(app.config.get('SQLALCHEMY_ENGINE_OPTIONS') or {})
+        engine_options.setdefault('pool_pre_ping', True)
+        engine_options.setdefault('pool_recycle', int(app.config.get('DB_POOL_RECYCLE') or 1800))
+        engine_options.setdefault('pool_timeout', int(app.config.get('DB_POOL_TIMEOUT') or 10))
+
+        connect_args = dict(engine_options.get('connect_args') or {})
+        connect_args.setdefault('connect_timeout', int(app.config.get('DB_CONNECT_TIMEOUT') or 5))
+        connect_args.setdefault(
+            'options',
+            f"-c statement_timeout={int(app.config.get('DB_STATEMENT_TIMEOUT_MS') or 8000)}"
+        )
+        engine_options['connect_args'] = connect_args
+        app.config['SQLALCHEMY_ENGINE_OPTIONS'] = engine_options
+
     if config_name == 'production':
         secret_key = app.config.get('SECRET_KEY') or ''
         if secret_key in {'', 'dev-key-please-change', 'change-me-in-production'}:

@@ -9,21 +9,70 @@
     const statusEl = document.getElementById("chatbot-status");
     const loginLink = document.getElementById("chatbot-login-link");
 
+    const hint = document.getElementById("chatbot-hint");
+    const hintDismissBtn = document.getElementById("chatbot-hint-dismiss");
+    const hintNeverCheckbox = document.getElementById("chatbot-hint-never");
+
     if (!launcher || !panel || !closeBtn || !backdrop || !thread || !statusEl) {
         return;
     }
 
     const isAuthenticated = panel.dataset.authenticated === "true";
+    const userKey = (panel.dataset.userKey || (isAuthenticated ? "user" : "guest")).trim();
+    const hintStorageKey = `chatbot_hint_hidden_${userKey || "guest"}`;
+    let hintDismissedForSession = false;
 
     const getCsrfToken = () => {
         const meta = document.querySelector('meta[name="csrf-token"]');
         return (meta?.getAttribute("content") || "").trim();
     };
 
+    const getHintHiddenPreference = () => {
+        try {
+            return window.localStorage.getItem(hintStorageKey) === "1";
+        } catch (_error) {
+            return false;
+        }
+    };
+
+    const saveHintHiddenPreference = () => {
+        try {
+            window.localStorage.setItem(hintStorageKey, "1");
+        } catch (_error) {
+            // Ignore storage failures (private mode / blocked storage).
+        }
+    };
+
+    const hideHint = () => {
+        if (!hint) {
+            return;
+        }
+        hint.classList.add("hidden");
+        hint.setAttribute("aria-hidden", "true");
+    };
+
+    const showHintIfAllowed = () => {
+        if (!hint) {
+            return;
+        }
+        if (hintDismissedForSession || getHintHiddenPreference()) {
+            hideHint();
+            return;
+        }
+        if (!panel.classList.contains("hidden")) {
+            hideHint();
+            return;
+        }
+
+        hint.classList.remove("hidden");
+        hint.setAttribute("aria-hidden", "false");
+    };
+
     const openPanel = () => {
         panel.classList.remove("hidden");
         backdrop.classList.remove("hidden");
         launcher.setAttribute("aria-expanded", "true");
+        hideHint();
 
         window.setTimeout(() => {
             if (isAuthenticated && input) {
@@ -41,6 +90,7 @@
         backdrop.classList.add("hidden");
         launcher.setAttribute("aria-expanded", "false");
         launcher.focus();
+        window.setTimeout(showHintIfAllowed, 120);
     };
 
     const setStarVisualState = (starButtons, selectedRating) => {
@@ -118,7 +168,7 @@
             starBtn.setAttribute("aria-label", `Rate ${value} star${value > 1 ? "s" : ""}`);
             starBtn.className =
                 "inline-flex h-11 w-11 items-center justify-center rounded-lg text-2xl text-slate-300 transition hover:text-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-300 disabled:cursor-not-allowed disabled:opacity-70";
-            starBtn.textContent = "★";
+            starBtn.innerHTML = "&#9733;";
             starsWrap.appendChild(starBtn);
             starButtons.push(starBtn);
         }
@@ -336,4 +386,28 @@
             ask();
         });
     }
+
+    if (hintDismissBtn) {
+        hintDismissBtn.addEventListener("click", () => {
+            hintDismissedForSession = true;
+            hideHint();
+        });
+    }
+
+    if (hintNeverCheckbox) {
+        if (getHintHiddenPreference()) {
+            hintNeverCheckbox.checked = true;
+        }
+
+        hintNeverCheckbox.addEventListener("change", () => {
+            if (!hintNeverCheckbox.checked) {
+                return;
+            }
+            saveHintHiddenPreference();
+            hintDismissedForSession = true;
+            hideHint();
+        });
+    }
+
+    window.setTimeout(showHintIfAllowed, 700);
 })();
