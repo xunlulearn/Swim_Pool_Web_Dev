@@ -94,50 +94,6 @@
         </div>
 </div>
 
-    <!-- Chatbot Card -->
-    <div class="rounded-2xl bg-white shadow-xl border border-gray-100 p-6 sm:p-8">
-        <div class="flex flex-col gap-4">
-            <div>
-                <h2 class="text-2xl font-bold text-slate-900">NTU Pool Assistant</h2>
-                <p class="text-sm text-slate-500 mt-1">
-                    Ask questions about ntupool.org content.
-                </p>
-            </div>
-
-            <div class="space-y-3">
-                <label for="chatbot-input" class="text-sm font-medium text-slate-700">Your Question</label>
-                <textarea
-                    id="chatbot-input"
-                    rows="3"
-                    maxlength="2000"
-                    class="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-ntu-blue/30 focus:border-ntu-blue resize-y"
-                    placeholder="e.g. What are the opening hours?"
-                ></textarea>
-                <div class="flex items-center justify-between gap-3">
-                    <p id="chatbot-status" class="text-xs text-slate-500"></p>
-                    <button
-                        id="chatbot-send"
-                        type="button"
-                        class="inline-flex items-center justify-center rounded-xl bg-ntu-blue px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        Ask
-                    </button>
-                </div>
-            </div>
-
-            <div class="rounded-xl border border-gray-200 bg-slate-50 p-4">
-                <p class="text-xs uppercase tracking-wider text-slate-500 font-semibold">Assistant Reply</p>
-                <p id="chatbot-reply" class="mt-2 text-sm text-slate-800 leading-relaxed">
-                    Start by asking a question above.
-                </p>
-                <div id="chatbot-sources-wrap" class="mt-3 hidden">
-                    <p class="text-xs uppercase tracking-wider text-slate-500 font-semibold">Sources</p>
-                    <ul id="chatbot-sources" class="mt-2 space-y-1 text-sm"></ul>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- Quick Actions (Optional Future Expansion) -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <!-- Community Teaser -->
@@ -168,10 +124,10 @@
     </div>
 
 </div>
+
 {% endblock %}
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/weather_v2.js', v='20260215-3') }}"></script>
 <script src="{{ url_for('static', filename='js/live_status.js', v='20260215-3') }}"></script>
-<script src="{{ url_for('static', filename='js/chatbot.js', v='20260215-1') }}"></script>
 {% endblock %}

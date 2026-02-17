@@ -1,102 +1,130 @@
-# NTU Swimming Pool Website 🏊‍♂️⚡
+﻿# NTU Swimming Pool Website
 
-A comprehensive platform designed for Nanyang Technological University (NTU) students and staff to track real-time swimming pool status and connect with the community.
+A comprehensive platform for Nanyang Technological University (NTU) students and staff to track real-time swimming pool status and connect with the community.
 
-## 📖 Overview
+## Overview
 
-This project aims to solve the uncertainty of pool availability due to weather or maintenance. It combines official meteorological data with crowdsourced reports to provide the most accurate status updates. Additionally, it features a social hub for swimmers to interact, find swimming buddies, or report lost items.
+This project reduces uncertainty in pool availability caused by weather or maintenance. It combines official meteorological data with crowdsourced reports to provide accurate status updates, and includes a social hub for swimmers.
 
-## ✨ Key Features
+## Key Features
 
-### 1. 🌦️ Real-Time Pool Status (Dual-Validation System)
-We use a **Cross-Validation Mechanism** to ensure accuracy:
-* **Source A (Official):** Automatically fetches real-time lightning alert data via the **NEA (National Environment Agency) API**.
-* **Source B (Crowdsourced):** Allows users currently at the pool to report the actual open/closed status (Live Reporting).
-> The system combines these two inputs to determine whether the pool is safe and open.
+### 1. Real-Time Pool Status (Dual-Validation System)
 
-### 2. 💬 Social Community & Plaza
-A dedicated space for the NTU swimming community:
-* **Interaction:** Users can create posts, write comments, and like interesting content.
-* **Connections:** Find friends, swimming partners, or organize meetups.
-* **Lost & Found:** A specific tag/area to post about items lost or found at the pool.
-* **Profile Customization:** Users can upload unique avatars and update their nicknames.
+The system uses cross-validation for better reliability:
+- Source A (Official): real-time lightning/rainfall related weather data via NEA APIs.
+- Source B (Crowdsourced): user-submitted live pool open/closed reports.
 
----
+### 2. Social Community
 
-## 👥 User Roles & Permissions
+A dedicated space for NTU swimmers:
+- Users can create posts, comments, and likes.
+- Users can find swimming partners and organize meetups.
+- Lost-and-found communication support.
+- Profile customization (avatar and nickname).
 
-To ensure data quality and community safety, features are restricted based on authentication status:
+## User Roles and Permissions
 
-| Feature | 👤 Guest (Unregistered) | ✅ Verified User (Logged In) |
+| Feature | Guest (Unregistered) | Verified User (Logged In) |
 | :--- | :---: | :---: |
-| **View Pool Status** | ✅ | ✅ |
-| **Report Pool Status** | ❌ | ✅ |
-| **Browse Community Feed** | ✅ | ✅ |
-| **Create Posts** | ❌ | ✅ |
-| **Comment & Like** | ❌ | ✅ |
-| **Profile Management** | ❌ | ✅ |
+| View Pool Status | Yes | Yes |
+| Report Pool Status | No | Yes |
+| Browse Community Feed | Yes | Yes |
+| Create Posts | No | Yes |
+| Comment and Like | No | Yes |
+| Profile Management | No | Yes |
+| Chatbot Assistant | Login prompt only | Chat + 5-star feedback |
 
----
+## Tech Stack
 
-## 🛠️ Tech Stack
-* **Backend:** Python, Flask
-* **Database:** PostgreSQL
-* **External API:** NEA Weather API: [https://api-open.data.gov.sg/v2/real-time/api/weather?api=lightning](https://api-open.data.gov.sg/v2/real-time/api/weather?api=lightning)
-* **Frontend:** HTML/CSS (Mobile-First Design)
+- Backend: Python, Flask
+- Database: PostgreSQL
+- External API: NEA Weather API (`https://api-open.data.gov.sg/v2/real-time/api/weather?api=lightning`)
+- Frontend: HTML/CSS (mobile-first)
 
----
-
-## 🚀 Getting Started
-
-Follow these steps to set up the project locally for development.
+## Getting Started
 
 ### Prerequisites
-* Python 3.8+
-* pip
+
+- Python 3.8+
+- pip
 
 ### Installation
 
-1.  **Clone the repository**
-    ```bash
-    git clone [https://github.com/YourUsername/Swim_Pool_Web_Dev.git](https://github.com/YourUsername/Swim_Pool_Web_Dev.git)
-    cd Swim_Pool_Web_Dev
-    ```
+1. Clone the repository
+```bash
+git clone https://github.com/YourUsername/Swim_Pool_Web_Dev.git
+cd Swim_Pool_Web_Dev
+```
 
-2.  **Set up the environment**
-    Create a `.env` file based on the example provided.
-    ```bash
-    # Windows
-    copy .env.example .env
-    # Mac/Linux
-    cp .env.example .env
-    ```
+2. Set up environment file
+```bash
+# Windows
+copy .env.example .env
 
-3.  **Install Dependencies**
-    ```bash
-    pip install -r requirements.txt
-    ```
+# Mac/Linux
+cp .env.example .env
+```
 
-4.  **Initialize the Database**
-    This will create the necessary tables for users, posts, and status reports.
-    ```bash
-    python init_db.py
-    ```
+3. Install dependencies
+```bash
+pip install -r requirements.txt
+```
 
-5.  **Run the Application**
-    ```bash
-    flask run
-    ```
-    Visit `http://127.0.0.1:5000` in your browser.
+4. Initialize database
+```bash
+python init_db.py
+```
 
----
+5. Run application
+```bash
+flask run
+```
 
-## 🤝 Contribution
-Contributions are welcome! Please feel free to verify bugs or submit Pull Requests.
+Visit `http://127.0.0.1:5000`.
 
-## 📄 License
+## Contribution
+
+Contributions are welcome. Please submit issues or pull requests.
+
+## License
+
 This project is licensed under the MIT License.
 
----
-
 ## Chatbot Deployment
-For the new LangGraph/LangChain chatbot deployment flow, see CHATBOT_DEPLOY.md.
+
+For LangGraph/LangChain chatbot deployment details, see `CHATBOT_DEPLOY.md`.
+
+## Chatbot Runtime Behavior
+
+1. The chatbot panel is visible globally on all pages that extend the base template.
+2. Only logged-in users can send chatbot messages. Guests see a login prompt in the panel.
+3. Every successful chatbot exchange is persisted to Supabase table `chatbot_conversations`.
+4. On every 10th cumulative message per user (10/20/30...), the assistant includes a 5-star rating widget.
+5. Chatbot uses intent-first routing:
+   - `small_talk`: direct LLM reply
+   - `database`: function calling/tool-use against app DB, then LLM summary
+   - `knowledge_base`: RAG retrieval + LLM generation
+   - `fallback`: out-of-scope fallback reply
+6. Backend rules/config questions (for example lightning/rain thresholds, persistence windows, consensus logic, runtime settings) use backend-priority context in knowledge path.
+7. Casual small-talk (`hi`, `hello`) bypasses vector retrieval and uses direct LLM chat.
+8. Reply language follows user input language.
+9. Chat input behavior: `Enter` sends message, `Ctrl/Cmd + Enter` inserts newline.
+10. When knowledge retrieval is used, `sources` are returned if available.
+
+## Chatbot Knowledge Sync
+
+To keep chatbot retrieval data up to date:
+
+1. Put Markdown files under `knowledge_base/`.
+2. Double-click `sync_knowledge_base.bat`.
+3. Incremental sync updates vector rows from:
+   - `ntupool.org` sitemap pages
+   - runtime pool status + manual reports
+   - community posts/comments
+   - backend non-sensitive config snapshot
+   - local Markdown files in `knowledge_base/`
+
+Force full refresh when needed:
+```bash
+python sync_knowledge_base.py --full-rebuild
+```

@@ -39,3 +39,6 @@ node_modules/
 .vscode/
 *.swp
 #reset_cloud_db.py
+
+# Playwright CLI local session/artifacts
+.playwright-cli/

@@ -52,13 +52,29 @@ class Config:
     OPENAI_BASE_URL = os.environ.get('OPENAI_BASE_URL')
     OPENAI_CHAT_MODEL = os.environ.get('OPENAI_CHAT_MODEL') or 'gpt-4o-mini'
     OPENAI_EMBED_MODEL = os.environ.get('OPENAI_EMBED_MODEL') or 'text-embedding-3-small'
+    CHATBOT_INTENT_API_KEY = (
+        os.environ.get('CHATBOT_INTENT_API_KEY')
+        or os.environ.get('OPENROUTER_API_KEY')
+        or OPENAI_API_KEY
+    )
+    CHATBOT_INTENT_BASE_URL = (
+        os.environ.get('CHATBOT_INTENT_BASE_URL')
+        or os.environ.get('OPENROUTER_BASE_URL')
+        or 'https://openrouter.ai/api/v1'
+    )
+    CHATBOT_INTENT_MODEL = (
+        os.environ.get('CHATBOT_INTENT_MODEL')
+        or 'liquid/lfm-2.5-1.2b-thinking:free'
+    )
     SUPABASE_URL = os.environ.get('SUPABASE_URL')
     SUPABASE_SERVICE_ROLE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY')
     SUPABASE_DOCS_TABLE = os.environ.get('SUPABASE_DOCS_TABLE') or 'pool_documents'
     SUPABASE_MATCH_FUNCTION = os.environ.get('SUPABASE_MATCH_FUNCTION') or 'match_documents'
+    SUPABASE_CHAT_LOG_TABLE = os.environ.get('SUPABASE_CHAT_LOG_TABLE') or 'chatbot_conversations'
     CHATBOT_TOP_K = env_int('CHATBOT_TOP_K', 3)
-    CHATBOT_MIN_SCORE = env_float('CHATBOT_MIN_SCORE', 0.65)
+    CHATBOT_MIN_SCORE = env_float('CHATBOT_MIN_SCORE', 0.45)
     CHATBOT_MAX_CONTEXT_CHARS = env_int('CHATBOT_MAX_CONTEXT_CHARS', 4000)
+    CHATBOT_DB_TOOL_MAX_CALLS = env_int('CHATBOT_DB_TOOL_MAX_CALLS', 4)
 
 class DevelopmentConfig(Config):
     DEBUG = True

@@ -48,3 +48,30 @@ begin
     limit match_count;
 end;
 $$;
+
+create table if not exists public.chatbot_conversations (
+    id uuid primary key default gen_random_uuid(),
+    created_at timestamptz not null default now(),
+    user_id bigint not null,
+    user_message text not null,
+    assistant_message text not null,
+    sources jsonb not null default '[]'::jsonb,
+    message_counter bigint not null check (message_counter > 0),
+    feedback_requested boolean not null default false,
+    rating_score smallint check (rating_score between 1 and 5),
+    rating_submitted_at timestamptz,
+    request_ip text,
+    user_agent text,
+    constraint chatbot_conversations_user_counter_unique unique (user_id, message_counter)
+);
+
+create index if not exists chatbot_conversations_user_created_at_idx
+on public.chatbot_conversations (user_id, created_at desc);
+
+create index if not exists chatbot_conversations_feedback_requested_idx
+on public.chatbot_conversations (feedback_requested)
+where feedback_requested is true;
+
+create index if not exists chatbot_conversations_rating_score_idx
+on public.chatbot_conversations (rating_score)
+where rating_score is not null;

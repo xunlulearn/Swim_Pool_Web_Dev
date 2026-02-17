@@ -1,7 +1,10 @@
-﻿import pytest
+import uuid
+
+import pytest
 
 from app import create_app, db
 from app.blueprints.chatbot import ChatbotConfigError
+from app.models.user import User
 
 
 class _FakeGraph:
@@ -32,7 +35,37 @@ def client(app):
     return app.test_client()
 
 
-def test_chat_success_returns_reply_and_sources(client, mocker):
+@pytest.fixture
+def user_id(app):
+    with app.app_context():
+        user = User(
+            email="chatbot@example.com",
+            username="chatbot_tester",
+            is_verified=True,
+        )
+        user.password = "password123"
+        db.session.add(user)
+        db.session.commit()
+        return user.id
+
+
+@pytest.fixture
+def auth_client(client, user_id):
+    with client.session_transaction() as session:
+        session["_user_id"] = str(user_id)
+        session["_fresh"] = True
+    return client
+
+
+def test_chat_requires_login(client):
+    response = client.post("/api/chat", json={"message": "pool hours?"})
+    data = response.get_json()
+
+    assert response.status_code == 401
+    assert data["login_required"] is True
+
+
+def test_chat_success_returns_reply_sources_and_feedback_metadata(auth_client, mocker):
     mocker.patch(
         "app.blueprints.chatbot.get_rag_app",
         return_value=_FakeGraph(
@@ -42,44 +75,103 @@ def test_chat_success_returns_reply_and_sources(client, mocker):
             }
         ),
     )
+    mocker.patch(
+        "app.blueprints.chatbot._persist_chatbot_exchange",
+        return_value={
+            "conversation_id": "93ab65e7-18cc-4913-8521-5ca4c2410f2b",
+            "message_counter": 10,
+            "feedback_required": True,
+        },
+    )
 
-    response = client.post("/api/chat", json={"message": "pool hours?"})
+    response = auth_client.post("/api/chat", json={"message": "pool hours?"})
     data = response.get_json()
 
     assert response.status_code == 200
     assert data["reply"] == "test reply"
     assert data["sources"] == ["https://ntupool.org/"]
+    assert data["message_counter"] == 10
+    assert data["feedback_required"] is True
+    assert data["conversation_id"] == "93ab65e7-18cc-4913-8521-5ca4c2410f2b"
+    assert "feedback_prompt" in data
 
 
-def test_chat_empty_message_returns_400(client):
-    response = client.post("/api/chat", json={"message": "   "})
+def test_chat_empty_message_returns_400(auth_client):
+    response = auth_client.post("/api/chat", json={"message": "   "})
     data = response.get_json()
 
     assert response.status_code == 400
     assert "message" in data["error"]
 
 
-def test_chat_internal_error_returns_500(client, mocker):
+def test_chat_internal_error_returns_500(auth_client, mocker):
     mocker.patch(
         "app.blueprints.chatbot.get_rag_app",
         return_value=_FakeGraph(error=RuntimeError("boom")),
     )
 
-    response = client.post("/api/chat", json={"message": "trigger error"})
+    response = auth_client.post("/api/chat", json={"message": "trigger error"})
     data = response.get_json()
 
     assert response.status_code == 500
     assert data["error"] == "Internal chatbot error."
 
 
-def test_chat_config_error_returns_503(client, mocker):
+def test_chat_config_error_returns_503(auth_client, mocker):
     mocker.patch(
         "app.blueprints.chatbot.get_rag_app",
         side_effect=ChatbotConfigError("missing env"),
     )
 
-    response = client.post("/api/chat", json={"message": "missing config"})
+    response = auth_client.post("/api/chat", json={"message": "missing config"})
     data = response.get_json()
 
     assert response.status_code == 503
     assert data["error"] == "Chatbot is not configured."
+
+
+def test_chat_feedback_requires_login(client):
+    response = client.post(
+        "/api/chat/feedback",
+        json={
+            "conversation_id": str(uuid.uuid4()),
+            "rating": 5,
+        },
+    )
+    data = response.get_json()
+
+    assert response.status_code == 401
+    assert data["login_required"] is True
+
+
+def test_chat_feedback_success(auth_client, mocker):
+    mocker.patch("app.blueprints.chatbot._save_chatbot_feedback")
+    conversation_id = str(uuid.uuid4())
+
+    response = auth_client.post(
+        "/api/chat/feedback",
+        json={
+            "conversation_id": conversation_id,
+            "rating": 4,
+        },
+    )
+    data = response.get_json()
+
+    assert response.status_code == 200
+    assert data["ok"] is True
+    assert data["conversation_id"] == conversation_id
+    assert data["rating"] == 4
+
+
+def test_chat_feedback_invalid_rating_returns_400(auth_client):
+    response = auth_client.post(
+        "/api/chat/feedback",
+        json={
+            "conversation_id": str(uuid.uuid4()),
+            "rating": 7,
+        },
+    )
+    data = response.get_json()
+
+    assert response.status_code == 400
+    assert "rating" in data["error"]

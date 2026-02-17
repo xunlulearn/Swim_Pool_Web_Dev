@@ -7,18 +7,25 @@ $IMAGE = "asia-southeast1-docker.pkg.dev/$PROJECT_ID/ntu-pool-repo/ntu-pool"
 
 Write-Host "Starting Cloud Run deployment..." -ForegroundColor Green
 
-$possiblePaths = @(
-    "$env:LOCALAPPDATA\Google\Cloud SDK\google-cloud-sdk\bin",
-    "${env:ProgramFiles(x86)}\Google\Cloud SDK\google-cloud-sdk\bin",
-    "$env:ProgramFiles\Google\Cloud SDK\google-cloud-sdk\bin",
-    "$env:USERPROFILE\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin"
-)
-
 $gcloudPath = $null
-foreach ($path in $possiblePaths) {
-    if (Test-Path "$path\gcloud.cmd") {
-        $gcloudPath = $path
-        break
+$existingGcloud = Get-Command gcloud -ErrorAction SilentlyContinue
+if ($existingGcloud -and $existingGcloud.Source) {
+    $gcloudPath = Split-Path -Parent $existingGcloud.Source
+}
+
+if (-not $gcloudPath) {
+    $possiblePaths = @(
+        "$env:LOCALAPPDATA\Google\Cloud SDK\google-cloud-sdk\bin",
+        "${env:ProgramFiles(x86)}\Google\Cloud SDK\google-cloud-sdk\bin",
+        "$env:ProgramFiles\Google\Cloud SDK\google-cloud-sdk\bin",
+        "$env:USERPROFILE\AppData\Local\Google\Cloud SDK\google-cloud-sdk\bin"
+    )
+
+    foreach ($path in $possiblePaths) {
+        if (Test-Path "$path\gcloud.cmd") {
+            $gcloudPath = $path
+            break
+        }
     }
 }
 
@@ -28,7 +35,9 @@ if (-not $gcloudPath) {
     exit 1
 }
 
-$env:PATH = "$gcloudPath;$env:PATH"
+if ($env:PATH -notlike "*$gcloudPath*") {
+    $env:PATH = "$gcloudPath;$env:PATH"
+}
 
 function Require-Env($name) {
     $value = [Environment]::GetEnvironmentVariable($name)
@@ -50,11 +59,14 @@ if ([string]::IsNullOrWhiteSpace($env:SECRET_KEY)) {
 
 if ([string]::IsNullOrWhiteSpace($env:OPENAI_CHAT_MODEL)) { $env:OPENAI_CHAT_MODEL = "gpt-4o-mini" }
 if ([string]::IsNullOrWhiteSpace($env:OPENAI_EMBED_MODEL)) { $env:OPENAI_EMBED_MODEL = "text-embedding-3-small" }
+if ([string]::IsNullOrWhiteSpace($env:CHATBOT_INTENT_BASE_URL)) { $env:CHATBOT_INTENT_BASE_URL = "https://openrouter.ai/api/v1" }
+if ([string]::IsNullOrWhiteSpace($env:CHATBOT_INTENT_MODEL)) { $env:CHATBOT_INTENT_MODEL = "liquid/lfm-2.5-1.2b-thinking:free" }
 if ([string]::IsNullOrWhiteSpace($env:SUPABASE_DOCS_TABLE)) { $env:SUPABASE_DOCS_TABLE = "pool_documents" }
 if ([string]::IsNullOrWhiteSpace($env:SUPABASE_MATCH_FUNCTION)) { $env:SUPABASE_MATCH_FUNCTION = "match_documents" }
 if ([string]::IsNullOrWhiteSpace($env:CHATBOT_TOP_K)) { $env:CHATBOT_TOP_K = "3" }
-if ([string]::IsNullOrWhiteSpace($env:CHATBOT_MIN_SCORE)) { $env:CHATBOT_MIN_SCORE = "0.65" }
+if ([string]::IsNullOrWhiteSpace($env:CHATBOT_MIN_SCORE)) { $env:CHATBOT_MIN_SCORE = "0.45" }
 if ([string]::IsNullOrWhiteSpace($env:CHATBOT_MAX_CONTEXT_CHARS)) { $env:CHATBOT_MAX_CONTEXT_CHARS = "4000" }
+if ([string]::IsNullOrWhiteSpace($env:CHATBOT_DB_TOOL_MAX_CALLS)) { $env:CHATBOT_DB_TOOL_MAX_CALLS = "4" }
 
 $envVars = @(
     "FLASK_ENV=production"
@@ -64,6 +76,8 @@ $envVars = @(
     "OPENAI_API_KEY=$($env:OPENAI_API_KEY)"
     "OPENAI_CHAT_MODEL=$($env:OPENAI_CHAT_MODEL)"
     "OPENAI_EMBED_MODEL=$($env:OPENAI_EMBED_MODEL)"
+    "CHATBOT_INTENT_BASE_URL=$($env:CHATBOT_INTENT_BASE_URL)"
+    "CHATBOT_INTENT_MODEL=$($env:CHATBOT_INTENT_MODEL)"
     "SUPABASE_URL=$($env:SUPABASE_URL)"
     "SUPABASE_SERVICE_ROLE_KEY=$($env:SUPABASE_SERVICE_ROLE_KEY)"
     "SUPABASE_DOCS_TABLE=$($env:SUPABASE_DOCS_TABLE)"
@@ -71,6 +85,7 @@ $envVars = @(
     "CHATBOT_TOP_K=$($env:CHATBOT_TOP_K)"
     "CHATBOT_MIN_SCORE=$($env:CHATBOT_MIN_SCORE)"
     "CHATBOT_MAX_CONTEXT_CHARS=$($env:CHATBOT_MAX_CONTEXT_CHARS)"
+    "CHATBOT_DB_TOOL_MAX_CALLS=$($env:CHATBOT_DB_TOOL_MAX_CALLS)"
 )
 
 if (-not [string]::IsNullOrWhiteSpace($env:NEA_API_KEY)) {
@@ -78,6 +93,9 @@ if (-not [string]::IsNullOrWhiteSpace($env:NEA_API_KEY)) {
 }
 if (-not [string]::IsNullOrWhiteSpace($env:OPENAI_BASE_URL)) {
     $envVars += "OPENAI_BASE_URL=$($env:OPENAI_BASE_URL)"
+}
+if (-not [string]::IsNullOrWhiteSpace($env:CHATBOT_INTENT_API_KEY)) {
+    $envVars += "CHATBOT_INTENT_API_KEY=$($env:CHATBOT_INTENT_API_KEY)"
 }
 
 $envVarsArg = [string]::Join(",", $envVars)
