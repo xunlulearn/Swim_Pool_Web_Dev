@@ -79,7 +79,7 @@
                                     >
                                         ?
                                     </button>
-                                    <div class="pointer-events-none absolute left-1/2 top-6 z-10 w-56 -translate-x-1/2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-left text-[11px] leading-5 text-slate-600 opacity-0 shadow-lg transition duration-200 group-hover:opacity-100 group-focus-within:opacity-100">
+                                    <div class="pointer-events-none absolute left-1/2 top-6 z-10 w-56 -translate-x-1/2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-left text-[11px] leading-5 text-slate-600 opacity-0 shadow-lg transition duration-200 group-hover:opacity-100 group-focus-within:opacity-100 sm:left-auto sm:right-0 sm:translate-x-0">
                                         Rainfall data is delayed by around 10 minutes.
                                     </div>
                                 </div>
@@ -107,6 +107,20 @@
                                 </div>
                             </div>
                             <div>
+                                <p class="text-[11px] font-medium text-slate-700">Lightning Count</p>
+                                <div class="relative mt-1.5 pb-5">
+                                    <div class="h-2 rounded-full bg-gradient-to-r from-emerald-400 via-amber-400 to-red-500"></div>
+                                    <span class="absolute inset-y-0 left-[25%] w-[2px] -translate-x-1/2 bg-white/90"></span>
+                                    <div id="legend-count-pointer" class="absolute top-3 left-[10%] -translate-x-1/2 text-slate-700 transition-all duration-500">
+                                        <svg class="h-2.5 w-3" viewBox="0 0 12 8" fill="currentColor" aria-hidden="true">
+                                            <path d="M6 0L12 8H0z"></path>
+                                        </svg>
+                                    </div>
+                                    <span class="absolute top-4 left-0 text-[10px] font-semibold text-slate-500">0</span>
+                                    <span class="absolute top-4 left-[25%] -translate-x-1/2 text-[10px] font-semibold text-slate-500">30</span>
+                                </div>
+                            </div>
+                            <div>
                                 <p class="text-[11px] font-medium text-slate-700">Rainfall (mm/h)</p>
                                 <div class="relative mt-1.5 pb-5">
                                     <div class="h-2 rounded-full bg-gradient-to-r from-emerald-400 via-amber-400 to-red-500"></div>
@@ -119,20 +133,6 @@
                                     </div>
                                     <span class="absolute top-4 left-[20%] -translate-x-1/2 text-[10px] font-semibold text-slate-500">2</span>
                                     <span class="absolute top-4 left-[50%] -translate-x-1/2 text-[10px] font-semibold text-slate-500">5</span>
-                                </div>
-                            </div>
-                            <div>
-                                <p class="text-[11px] font-medium text-slate-700">Lightning Count</p>
-                                <div class="relative mt-1.5 pb-5">
-                                    <div class="h-2 rounded-full bg-gradient-to-r from-emerald-400 via-amber-400 to-red-500"></div>
-                                    <span class="absolute inset-y-0 left-[25%] w-[2px] -translate-x-1/2 bg-white/90"></span>
-                                    <div id="legend-count-pointer" class="absolute top-3 left-[10%] -translate-x-1/2 text-slate-700 transition-all duration-500">
-                                        <svg class="h-2.5 w-3" viewBox="0 0 12 8" fill="currentColor" aria-hidden="true">
-                                            <path d="M6 0L12 8H0z"></path>
-                                        </svg>
-                                    </div>
-                                    <span class="absolute top-4 left-0 text-[10px] font-semibold text-slate-500">0</span>
-                                    <span class="absolute top-4 left-[25%] -translate-x-1/2 text-[10px] font-semibold text-slate-500">30</span>
                                 </div>
                             </div>
                         </div>
