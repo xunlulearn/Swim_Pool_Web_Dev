@@ -1,9 +1,10 @@
 from datetime import datetime, timezone
 from functools import lru_cache
+import json
 import re
 from uuid import UUID
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 from flask_login import current_user
 
 try:
@@ -128,6 +129,92 @@ def _parse_conversation_id(raw_value):
         return None
 
 
+def _extract_message_from_request():
+    payload = request.get_json(silent=True)
+    if not payload or not isinstance(payload, dict):
+        return "", ("Request JSON body is required.", 400)
+
+    message = payload.get("message")
+    if not isinstance(message, str):
+        return "", ("`message` must be a string.", 400)
+
+    message = message.strip()
+    if not message:
+        return "", ("`message` cannot be empty.", 400)
+    if len(message) > MAX_MESSAGE_LENGTH:
+        return "", (f"`message` cannot exceed {MAX_MESSAGE_LENGTH} characters.", 400)
+    return message, None
+
+
+def _build_chat_response_payload(message: str):
+    try:
+        rag_app = get_rag_app(
+            top_k=current_app.config.get("CHATBOT_TOP_K"),
+            min_score=current_app.config.get("CHATBOT_MIN_SCORE"),
+            max_context_chars=current_app.config.get("CHATBOT_MAX_CONTEXT_CHARS"),
+        )
+        result = rag_app.invoke({"question": message})
+    except ChatbotConfigError as exc:
+        current_app.logger.warning("Chatbot configuration error: %s", exc)
+        return None, ("Chatbot is not configured.", 503)
+    except Exception:
+        current_app.logger.exception("Unexpected error in /api/chat.")
+        return None, ("Internal chatbot error.", 500)
+
+    reply = result.get("answer") if isinstance(result, dict) else None
+    if not isinstance(reply, str) or not reply.strip():
+        reply = DEFAULT_UNKNOWN_REPLY
+    else:
+        reply = reply.strip()
+
+    sources = _normalize_sources(result.get("sources", []) if isinstance(result, dict) else [])
+    quick_questions = _normalize_quick_questions(
+        result.get("quick_questions", []) if isinstance(result, dict) else []
+    )
+
+    try:
+        log_record = _persist_chatbot_exchange(
+            user_id=current_user.id,
+            message=message,
+            reply=reply,
+            sources=sources,
+        )
+    except ChatbotConfigError as exc:
+        current_app.logger.warning("Chatbot logging configuration error: %s", exc)
+        return None, ("Chatbot is not configured.", 503)
+    except Exception:
+        current_app.logger.exception("Unexpected error while persisting chatbot conversation.")
+        return None, ("Failed to save chatbot conversation.", 500)
+
+    response_payload = {
+        "reply": reply,
+        "sources": sources,
+        "conversation_id": log_record["conversation_id"],
+        "message_counter": log_record["message_counter"],
+        "feedback_required": log_record["feedback_required"],
+        "quick_questions": quick_questions,
+    }
+    if log_record["feedback_required"]:
+        response_payload["feedback_prompt"] = DEFAULT_FEEDBACK_PROMPT
+    return response_payload, None
+
+
+def _iter_reply_chunks(text: str, *, chunk_size: int = 24):
+    normalized = (text or "").strip()
+    if not normalized:
+        return
+    start = 0
+    step = max(1, int(chunk_size))
+    while start < len(normalized):
+        end = min(start + step, len(normalized))
+        yield normalized[start:end]
+        start = end
+
+
+def _stream_event(payload: dict) -> str:
+    return json.dumps(payload, ensure_ascii=False) + "\n"
+
+
 def _persist_chatbot_exchange(*, user_id: int, message: str, reply: str, sources: list[str]) -> dict:
     client = _get_supabase_client()
     table_name = _get_chat_log_table_name()
@@ -234,71 +321,46 @@ def chat():
     if not current_user.is_authenticated:
         return jsonify({"error": "Please log in to chat with the assistant.", "login_required": True}), 401
 
-    payload = request.get_json(silent=True)
-    if not payload or not isinstance(payload, dict):
-        return jsonify({"error": "Request JSON body is required."}), 400
+    message, validation_error = _extract_message_from_request()
+    if validation_error is not None:
+        error_text, status_code = validation_error
+        return jsonify({"error": error_text}), status_code
 
-    message = payload.get("message")
-    if not isinstance(message, str):
-        return jsonify({"error": "`message` must be a string."}), 400
-
-    message = message.strip()
-    if not message:
-        return jsonify({"error": "`message` cannot be empty."}), 400
-    if len(message) > MAX_MESSAGE_LENGTH:
-        return jsonify({"error": f"`message` cannot exceed {MAX_MESSAGE_LENGTH} characters."}), 400
-
-    try:
-        rag_app = get_rag_app(
-            top_k=current_app.config.get("CHATBOT_TOP_K"),
-            min_score=current_app.config.get("CHATBOT_MIN_SCORE"),
-            max_context_chars=current_app.config.get("CHATBOT_MAX_CONTEXT_CHARS"),
-        )
-        result = rag_app.invoke({"question": message})
-    except ChatbotConfigError as exc:
-        current_app.logger.warning("Chatbot configuration error: %s", exc)
-        return jsonify({"error": "Chatbot is not configured."}), 503
-    except Exception:
-        current_app.logger.exception("Unexpected error in /api/chat.")
-        return jsonify({"error": "Internal chatbot error."}), 500
-
-    reply = result.get("answer") if isinstance(result, dict) else None
-    if not isinstance(reply, str) or not reply.strip():
-        reply = DEFAULT_UNKNOWN_REPLY
-    else:
-        reply = reply.strip()
-
-    sources = _normalize_sources(result.get("sources", []) if isinstance(result, dict) else [])
-    quick_questions = _normalize_quick_questions(
-        result.get("quick_questions", []) if isinstance(result, dict) else []
-    )
-
-    try:
-        log_record = _persist_chatbot_exchange(
-            user_id=current_user.id,
-            message=message,
-            reply=reply,
-            sources=sources,
-        )
-    except ChatbotConfigError as exc:
-        current_app.logger.warning("Chatbot logging configuration error: %s", exc)
-        return jsonify({"error": "Chatbot is not configured."}), 503
-    except Exception:
-        current_app.logger.exception("Unexpected error while persisting chatbot conversation.")
-        return jsonify({"error": "Failed to save chatbot conversation."}), 500
-
-    response_payload = {
-        "reply": reply,
-        "sources": sources,
-        "conversation_id": log_record["conversation_id"],
-        "message_counter": log_record["message_counter"],
-        "feedback_required": log_record["feedback_required"],
-        "quick_questions": quick_questions,
-    }
-    if log_record["feedback_required"]:
-        response_payload["feedback_prompt"] = DEFAULT_FEEDBACK_PROMPT
-
+    response_payload, error = _build_chat_response_payload(message)
+    if error is not None:
+        error_text, status_code = error
+        return jsonify({"error": error_text}), status_code
     return jsonify(response_payload), 200
+
+
+@chatbot_bp.route("/api/chat/stream", methods=["POST"])
+def chat_stream():
+    if not current_user.is_authenticated:
+        return jsonify({"error": "Please log in to chat with the assistant.", "login_required": True}), 401
+
+    message, validation_error = _extract_message_from_request()
+    if validation_error is not None:
+        error_text, status_code = validation_error
+        return jsonify({"error": error_text}), status_code
+
+    response_payload, error = _build_chat_response_payload(message)
+    if error is not None:
+        error_text, status_code = error
+        return jsonify({"error": error_text}), status_code
+
+    def generate_stream():
+        for chunk in _iter_reply_chunks(response_payload.get("reply", "")):
+            yield _stream_event({"type": "delta", "delta": chunk})
+
+        final_payload = dict(response_payload)
+        final_payload["type"] = "final"
+        yield _stream_event(final_payload)
+
+    return Response(
+        stream_with_context(generate_stream()),
+        mimetype="application/x-ndjson",
+        headers={"Cache-Control": "no-cache, no-transform"},
+    )
 
 
 @chatbot_bp.route("/api/chat/feedback", methods=["POST"])

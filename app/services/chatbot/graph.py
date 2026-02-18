@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from functools import lru_cache
 import json
 import os
+from pathlib import Path
+import random
 import re
 import threading
 from typing import Any, NotRequired, TypedDict
@@ -86,6 +89,8 @@ DEFAULT_MATCH_FUNCTION = "match_documents"
 DEFAULT_TOP_K = 3
 DEFAULT_MIN_SCORE = 0.45
 DEFAULT_FALLBACK_MIN_SCORE = 0.25
+DEFAULT_LOW_CONFIDENCE_SCORE_WINDOW = 0.06
+DEFAULT_LOW_CONFIDENCE_MAX_DOCS = 3
 DEFAULT_MAX_CONTEXT_CHARS = 4000
 DEFAULT_DB_TOOL_MAX_CALLS = 4
 
@@ -127,6 +132,18 @@ GREETING_QUICK_QUESTIONS_EN = [
     "How can I submit a manual pool report?",
     "What are the pool opening hours on weekdays and weekends?",
 ]
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+FAQ_MARKDOWN_PATH = PROJECT_ROOT / "knowledge_base" / "faq.md"
+FAQ_QUESTION_LINE_RE = re.compile(r"^\s*###\s*Q:\s*(.+?)\s*$")
+
+UNKNOWN_GUIDE_QUESTION_SYSTEM_PROMPT = (
+    "You write follow-up questions for NTU Pool assistant when a previous answer was not enough. "
+    "Based on the user's question and reference snippets, generate exactly 3 concise user-style questions "
+    "that are likely answerable from the snippets. "
+    "Keep each question under 90 characters and avoid duplicates or yes/no-only variants. "
+    'Return JSON only in this exact schema: {"questions":["q1","q2","q3"]}.'
+)
 
 GENERAL_QUICK_QUESTIONS_EN = [
     "Is the pool open right now?",
@@ -207,6 +224,41 @@ SMALL_TALK_PREFIX = (
     "\u5728\u5417",
 )
 
+KEYWORD_OVERLAP_STOPWORDS = {
+    "the",
+    "a",
+    "an",
+    "is",
+    "are",
+    "was",
+    "were",
+    "do",
+    "does",
+    "did",
+    "what",
+    "when",
+    "where",
+    "why",
+    "how",
+    "who",
+    "which",
+    "of",
+    "to",
+    "for",
+    "on",
+    "in",
+    "at",
+    "by",
+    "from",
+    "with",
+    "and",
+    "or",
+    "cover",
+    "covers",
+    "window",
+    "time",
+}
+
 DATABASE_HINTS = (
     "post",
     "posts",
@@ -280,10 +332,91 @@ KNOWLEDGE_BASE_HINTS = (
     "\u5f00\u6e90",
 )
 
-BACKEND_RULE_CORE_HINTS = (
-    "logic",
+DATABASE_LOOKUP_HINTS = (
+    "latest",
+    "newest",
+    "recent",
+    "list",
+    "show",
+    "find",
+    "search",
+    "query",
+    "fetch",
+    "count",
+    "number of",
+    "how many",
+    "today",
+    "yesterday",
+    "this week",
+    "this month",
+    "id ",
+    " by ",
+)
+
+POLICY_QUESTION_HINTS = (
+    "who can",
+    "who is allowed",
+    "can i",
+    "am i allowed",
+    "allowed",
+    "eligible",
+    "eligibility",
+    "policy",
+    "requirement",
+    "requirements",
+    "condition",
+    "conditions",
     "rule",
     "rules",
+    "must",
+    "need to",
+    "requires",
+    "required",
+    "verified",
+    "verification",
+    "login",
+    "logged in",
+    "register",
+    "registered",
+)
+
+POLICY_DOMAIN_HINTS = (
+    "pool",
+    "swim",
+    "swimming",
+    "weather",
+    "lightning",
+    "rain",
+    "report",
+    "manual report",
+    "pool report",
+    "submit report",
+    "ntupool",
+)
+
+BACKEND_RULE_CORE_HINTS = (
+    "logic",
+    "architecture",
+    "architectural",
+    "design",
+    "workflow",
+    "flow",
+    "pipeline",
+    "strategy",
+    "rule",
+    "rules",
+    "table",
+    "tables",
+    "schema",
+    "field",
+    "fields",
+    "column",
+    "columns",
+    "sync",
+    "ingest",
+    "ingestion",
+    "incremental",
+    "update",
     "configured",
     "setting",
     "settings",
@@ -298,6 +431,9 @@ BACKEND_RULE_CORE_HINTS = (
     "min score",
     "max context",
     "how set",
+    "how does",
+    "how do",
+    "how works",
     "\u903b\u8f91",
     "\u89c4\u5219",
     "\u8bbe\u7f6e",
@@ -316,6 +452,15 @@ BACKEND_RULE_DOMAIN_HINTS = (
     "rainfall",
     "weather",
     "report",
+    "knowledge",
+    "knowledge base",
+    "kb",
+    "sync",
+    "supabase",
+    "postgres",
+    "table",
+    "match_documents",
+    "pool_documents",
     "pool status",
     "chatbot",
     "rag",
@@ -537,11 +682,22 @@ def _translate_quick_questions(
         return normalized
 
     if target_language == "zh":
-        mapped = [QUICK_QUESTION_ZH_MAP.get(item, "") for item in normalized]
-        resolved = _normalize_quick_questions(mapped)
-        if resolved:
-            return resolved
-        return []
+        mapped: list[str] = []
+        missing: list[str] = []
+        for item in normalized:
+            resolved = QUICK_QUESTION_ZH_MAP.get(item, "").strip()
+            if resolved:
+                mapped.append(resolved)
+            else:
+                missing.append(item)
+
+        translated_missing: list[str] = []
+        for item in missing:
+            localized = _translate_from_english(item, target_language, llm).strip()
+            if localized:
+                translated_missing.append(localized)
+
+        return _normalize_quick_questions(mapped + translated_missing)
 
     translated: list[str] = []
     for item in normalized:
@@ -551,6 +707,147 @@ def _translate_quick_questions(
         if localized not in translated:
             translated.append(localized)
     return _normalize_quick_questions(translated)
+
+
+@lru_cache(maxsize=1)
+def _load_faq_questions() -> tuple[str, ...]:
+    if not FAQ_MARKDOWN_PATH.exists():
+        return tuple()
+
+    questions: list[str] = []
+    try:
+        with FAQ_MARKDOWN_PATH.open("r", encoding="utf-8") as handle:
+            for raw_line in handle:
+                match = FAQ_QUESTION_LINE_RE.match(raw_line)
+                if not match:
+                    continue
+                question = match.group(1).strip()
+                if not question:
+                    continue
+                if not _looks_like_quick_question(question):
+                    continue
+                if question in questions:
+                    continue
+                questions.append(question)
+    except Exception:
+        return tuple()
+    return tuple(questions)
+
+
+def _random_faq_quick_questions(*, count: int = 3) -> list[str]:
+    desired = max(1, int(count))
+    faq_questions = list(_load_faq_questions())
+    sampled: list[str] = []
+    if len(faq_questions) >= desired:
+        sampled = random.sample(faq_questions, desired)
+    else:
+        sampled = faq_questions[:]
+
+    resolved = _normalize_quick_questions(sampled, max_items=desired)
+    if len(resolved) >= desired:
+        return resolved
+
+    fallback = _normalize_quick_questions(
+        GREETING_QUICK_QUESTIONS_EN,
+        max_items=max(desired, len(GREETING_QUICK_QUESTIONS_EN)),
+    )
+    for item in fallback:
+        if item in resolved:
+            continue
+        resolved.append(item)
+        if len(resolved) >= desired:
+            break
+    return resolved
+
+
+def _generate_quick_questions_from_context(
+    *,
+    question: str,
+    context_chunks: list[str],
+    llm: ChatOpenAI,
+    max_context_chars: int,
+) -> list[str]:
+    normalized_context = [chunk.strip() for chunk in (context_chunks or []) if str(chunk).strip()]
+    if not normalized_context:
+        return []
+
+    context_text = _truncate_context(normalized_context, max(1200, max_context_chars // 2))
+    if not context_text:
+        return []
+
+    try:
+        response = llm.invoke(
+            [
+                SystemMessage(content=UNKNOWN_GUIDE_QUESTION_SYSTEM_PROMPT),
+                HumanMessage(
+                    content=(
+                        f"User question:\n{(question or '').strip()}\n\n"
+                        f"Reference snippets:\n{context_text}\n\n"
+                        "Return JSON only."
+                    )
+                ),
+            ]
+        )
+        payload = _extract_json_object(_extract_text_content(getattr(response, "content", "")))
+        if not payload:
+            return []
+        raw_questions = payload.get("questions")
+        if not isinstance(raw_questions, list):
+            return []
+        cleaned = _normalize_quick_questions(raw_questions, max_items=3)
+        if not cleaned:
+            return []
+        source_question = (question or "").strip().lower()
+        deduped: list[str] = []
+        for item in cleaned:
+            if item.strip().lower() == source_question:
+                continue
+            if item in deduped:
+                continue
+            deduped.append(item)
+            if len(deduped) >= 3:
+                break
+        return deduped
+    except Exception:
+        return []
+
+
+def _quick_questions_from_similar_context(
+    *,
+    question: str,
+    context_chunks: list[str],
+    vector_store: SupabaseVectorStore,
+    llm: ChatOpenAI,
+    top_k: int,
+    min_score: float,
+    max_context_chars: int,
+) -> list[str]:
+    query = (question or "").strip()
+    context: list[str] = [chunk.strip() for chunk in (context_chunks or []) if str(chunk).strip()]
+
+    if not context and query:
+        for doc, score in _search_with_optional_scores(vector_store, query, max(top_k, 5)):
+            if score is not None and score < min_score:
+                continue
+            _append_doc_to_context(doc, context, [])
+            if len(context) >= max(top_k, 3):
+                break
+
+    if not context and query:
+        for doc, _score in _search_with_optional_scores(vector_store, query, max(top_k, 3)):
+            _append_doc_to_context(doc, context, [])
+            if len(context) >= max(top_k, 3):
+                break
+
+    generated = _generate_quick_questions_from_context(
+        question=query,
+        context_chunks=context,
+        llm=llm,
+        max_context_chars=max_context_chars,
+    )
+    if generated:
+        return generated
+    return _quick_questions_for_unanswerable(query)
 
 
 def _quick_questions_for_unanswerable(question: str) -> list[str]:
@@ -610,11 +907,49 @@ def _is_small_talk_heuristic(question: str) -> bool:
     return False
 
 
+def _has_database_lookup_intent(lowered_question: str) -> bool:
+    if any(token in lowered_question for token in DATABASE_LOOKUP_HINTS):
+        return True
+    if re.search(r"\b(id|#)\s*\d+\b", lowered_question):
+        return True
+    return False
+
+
+def _looks_like_policy_question(question: str) -> bool:
+    lowered = (question or "").strip().lower()
+    if not lowered:
+        return False
+
+    has_policy_signal = any(token in lowered for token in POLICY_QUESTION_HINTS)
+    starts_like_policy = bool(
+        re.match(
+            r"^\s*(who can|who is allowed|can i|am i allowed|do i need to|must i|what (is|are) (the )?(policy|rules?))\b",
+            lowered,
+        )
+    )
+    if not (has_policy_signal or starts_like_policy):
+        return False
+
+    has_domain_signal = any(token in lowered for token in POLICY_DOMAIN_HINTS) or _looks_like_kb_question(
+        question
+    )
+    return has_domain_signal
+
+
 def _looks_like_database_question(question: str) -> bool:
     lowered = (question or "").strip().lower()
     if not lowered:
         return False
-    return any(token in lowered for token in DATABASE_HINTS)
+
+    has_database_signal = any(token in lowered for token in DATABASE_HINTS)
+    if not has_database_signal:
+        return False
+
+    # Policy/rules questions should stay in KB unless there is an explicit
+    # record-lookup intent (latest/list/count/id/time-window).
+    if _looks_like_policy_question(question) and not _has_database_lookup_intent(lowered):
+        return False
+    return True
 
 
 def _looks_like_kb_question(question: str) -> bool:
@@ -695,6 +1030,10 @@ def _extract_json_object(raw: str) -> dict[str, Any] | None:
 def _heuristic_intent(question: str) -> str:
     if _is_small_talk_heuristic(question):
         return INTENT_SMALL_TALK
+    if _is_backend_rules_question(question):
+        return INTENT_KNOWLEDGE_BASE
+    if _looks_like_policy_question(question):
+        return INTENT_KNOWLEDGE_BASE
     if _looks_like_database_question(question):
         return INTENT_DATABASE
     if _looks_like_kb_question(question):
@@ -705,6 +1044,10 @@ def _heuristic_intent(question: str) -> str:
 def _merge_model_intent_with_heuristic(question: str, model_intent: str | None) -> str:
     normalized_model_intent = _normalize_intent(model_intent)
     heuristic_intent = _heuristic_intent(question)
+
+    # Policy/rules questions should stay in KB flow even when model drifts to DB.
+    if _looks_like_policy_question(question) and normalized_model_intent == INTENT_DATABASE:
+        return INTENT_KNOWLEDGE_BASE
 
     # Guardrail: when model says fallback but heuristics strongly detect an in-scope query,
     # trust heuristics to avoid false fallback and route into DB/RAG flow.
@@ -871,9 +1214,13 @@ def _load_backend_priority_docs(vector_store: SupabaseVectorStore, top_k: int) -
 def _search_with_optional_scores(
     vector_store: SupabaseVectorStore, question: str, top_k: int
 ) -> list[tuple[Any, float | None]]:
+    # With ANN indexes (for example IVFFLAT), a tiny candidate pool can miss
+    # the true nearest chunk. Pull a wider pool, then filter/rerank downstream.
+    search_k = max(int(top_k or 0) * 4, 24)
+
     if hasattr(vector_store, "similarity_search_with_relevance_scores"):
         try:
-            pairs = vector_store.similarity_search_with_relevance_scores(question, k=top_k)
+            pairs = vector_store.similarity_search_with_relevance_scores(question, k=search_k)
             if pairs:
                 return [(doc, _coerce_score(score)) for doc, score in pairs]
         except Exception:
@@ -881,7 +1228,7 @@ def _search_with_optional_scores(
 
     if hasattr(vector_store, "similarity_search_with_score"):
         try:
-            pairs = vector_store.similarity_search_with_score(question, k=top_k)
+            pairs = vector_store.similarity_search_with_score(question, k=search_k)
             # Some vector stores return distance-like scores where lower is better.
             # Keep compatibility by skipping threshold filtering for this branch.
             if pairs:
@@ -891,7 +1238,7 @@ def _search_with_optional_scores(
 
     if hasattr(vector_store, "similarity_search"):
         try:
-            docs = vector_store.similarity_search(question, k=top_k)
+            docs = vector_store.similarity_search(question, k=search_k)
             if docs:
                 return [(doc, None) for doc in docs]
         except Exception:
@@ -910,12 +1257,25 @@ def _search_with_optional_scores(
         query_name,
         {
             "query_embedding": query_embedding,
-            "match_count": top_k,
+            "match_count": search_k,
             "filter": {},
         },
     ).execute()
 
     rows = (response.data or []) if hasattr(response, "data") else []
+    if not rows and search_k < 64:
+        # Retry once with a wider neighborhood to reduce false-empty retrieval.
+        retry_k = max(search_k * 2, 48)
+        retry_response = client.rpc(
+            query_name,
+            {
+                "query_embedding": query_embedding,
+                "match_count": retry_k,
+                "filter": {},
+            },
+        ).execute()
+        rows = (retry_response.data or []) if hasattr(retry_response, "data") else []
+
     results: list[tuple[Any, float | None]] = []
     for row in rows:
         if not isinstance(row, dict):
@@ -948,12 +1308,152 @@ def _append_doc_to_context(doc: Any, context: list[str], sources: list[str]) -> 
     text = (getattr(doc, "page_content", "") or "").strip()
     if not text:
         return
+    if text in context:
+        return
     context.append(text)
 
     metadata = getattr(doc, "metadata", {}) or {}
     source = metadata.get("source") or metadata.get("url")
     if source and source not in sources:
         sources.append(str(source))
+
+
+def _keyword_overlap_ratio(query_text: str, candidate_text: str) -> float:
+    query = (query_text or "").strip().lower()
+    candidate = (candidate_text or "").strip().lower()
+    if not query or not candidate:
+        return 0.0
+
+    query_tokens = {
+        token
+        for token in re.findall(r"[a-z0-9]+", query)
+        if len(token) >= 3 and token not in KEYWORD_OVERLAP_STOPWORDS
+    }
+    if not query_tokens:
+        return 0.0
+
+    candidate_tokens = set(re.findall(r"[a-z0-9]+", candidate))
+    if not candidate_tokens:
+        return 0.0
+
+    overlap = len(query_tokens & candidate_tokens)
+    return overlap / max(1, len(query_tokens))
+
+
+def _select_low_confidence_fallback_docs(
+    matched: list[tuple[Any, float | None]],
+    *,
+    top_k: int,
+    query_text: str = "",
+) -> list[Any]:
+    if not matched:
+        return []
+
+    max_docs = max(1, min(int(top_k or 0), DEFAULT_LOW_CONFIDENCE_MAX_DOCS))
+    scored_pairs = [(doc, score) for doc, score in matched if score is not None]
+    if not scored_pairs:
+        return [doc for doc, _score in matched[:max_docs]]
+
+    best_score = max(score for _doc, score in scored_pairs)
+    if best_score < DEFAULT_FALLBACK_MIN_SCORE:
+        return []
+
+    band_floor = max(DEFAULT_FALLBACK_MIN_SCORE, best_score - DEFAULT_LOW_CONFIDENCE_SCORE_WINDOW)
+    narrowed = [(doc, score) for doc, score in scored_pairs if score >= band_floor]
+    if not narrowed:
+        narrowed = [max(scored_pairs, key=lambda item: item[1])]
+
+    # Some providers do not guarantee ordering; enforce high-score-first.
+    narrowed.sort(key=lambda item: item[1], reverse=True)
+    selected_docs = [doc for doc, _score in narrowed[:max_docs]]
+    if len(selected_docs) >= max_docs:
+        return selected_docs
+
+    selected_texts = {
+        (getattr(doc, "page_content", "") or "").strip()
+        for doc in selected_docs
+        if (getattr(doc, "page_content", "") or "").strip()
+    }
+    lexical_candidates: list[tuple[Any, float, float]] = []
+    for doc, score in scored_pairs:
+        if score < DEFAULT_FALLBACK_MIN_SCORE:
+            continue
+        text = (getattr(doc, "page_content", "") or "").strip()
+        if not text or text in selected_texts:
+            continue
+        overlap = _keyword_overlap_ratio(query_text, text)
+        if overlap <= 0:
+            continue
+        lexical_candidates.append((doc, overlap, score))
+
+    lexical_candidates.sort(key=lambda item: (item[1], item[2]), reverse=True)
+    for doc, _overlap, _score in lexical_candidates:
+        selected_docs.append(doc)
+        if len(selected_docs) >= max_docs:
+            break
+
+    return selected_docs
+
+
+def _select_near_threshold_support_docs(
+    matched: list[tuple[Any, float | None]],
+    *,
+    min_score: float,
+    top_k: int,
+    selected_sources: list[str],
+    max_extra_docs: int = 2,
+    query_text: str = "",
+) -> list[Any]:
+    if not matched or max_extra_docs <= 0:
+        return []
+
+    desired = max(0, min(int(top_k or 0), int(max_extra_docs)))
+    if desired <= 0:
+        return []
+
+    source_set = {str(item).strip() for item in (selected_sources or []) if str(item).strip()}
+
+    same_source_candidates: list[tuple[Any, float, float]] = []
+    if source_set:
+        for doc, score in matched:
+            if score is None:
+                continue
+            score_value = float(score)
+            if score_value >= min_score:
+                continue
+            if score_value < DEFAULT_FALLBACK_MIN_SCORE:
+                continue
+            metadata = getattr(doc, "metadata", {}) or {}
+            source = str(metadata.get("source") or metadata.get("url") or "").strip()
+            if source in source_set:
+                overlap = _keyword_overlap_ratio(
+                    query_text, (getattr(doc, "page_content", "") or "")
+                )
+                same_source_candidates.append((doc, overlap, score_value))
+        if same_source_candidates:
+            same_source_candidates.sort(key=lambda item: (item[1], item[2]), reverse=True)
+            return [doc for doc, _overlap, _score in same_source_candidates[:desired]]
+
+    lower_bound = max(DEFAULT_FALLBACK_MIN_SCORE, float(min_score) - 0.12)
+
+    candidates: list[tuple[Any, float, float]] = []
+    for doc, score in matched:
+        if score is None:
+            continue
+        score_value = float(score)
+        if score_value >= min_score:
+            continue
+        if score_value < lower_bound:
+            continue
+        overlap = _keyword_overlap_ratio(query_text, (getattr(doc, "page_content", "") or ""))
+        candidates.append((doc, overlap, score_value))
+
+    if not candidates:
+        return []
+
+    candidates.sort(key=lambda item: (item[1], item[2]), reverse=True)
+    ordered = candidates
+    return [doc for doc, _overlap, _score in ordered[:desired]]
 
 
 def _build_vector_store(
@@ -1436,14 +1936,12 @@ def _build_graph(
         )
         context: list[str] = []
         sources: list[str] = []
+        backend_priority_docs: list[Document] = []
 
         if is_backend_rules:
-            # Backend rule/config questions should prioritize runtime + backend snapshots
-            # instead of relying only on vector similarity.
-            for doc in _load_backend_priority_docs(vector_store, top_k):
-                _append_doc_to_context(doc, context, sources)
-            if context:
-                return {"mode": INTENT_KNOWLEDGE_BASE, "context": context, "sources": sources}
+            # Keep backend snapshots as fallback context for backend-rule questions.
+            # Do not skip vector retrieval; KB chunks may hold the actual answer.
+            backend_priority_docs = _load_backend_priority_docs(vector_store, top_k)
 
         matched = _search_with_optional_scores(vector_store, retrieval_question, top_k)
 
@@ -1452,17 +1950,45 @@ def _build_graph(
                 continue
             _append_doc_to_context(doc, context, sources)
 
-        # If all candidates were filtered by score, keep top docs only when
-        # the best similarity is still reasonably close to the configured band.
+        # If thresholding leaves only a thin context, include a couple of
+        # near-threshold chunks (prefer same source) to recover split Q/A pairs.
+        if context and len(context) < min(2, max(1, top_k)):
+            for doc in _select_near_threshold_support_docs(
+                matched,
+                min_score=min_score,
+                top_k=top_k,
+                selected_sources=sources,
+                max_extra_docs=min(2, max(0, top_k - len(context))),
+                query_text=retrieval_question,
+            ):
+                _append_doc_to_context(doc, context, sources)
+
+        # If all candidates were filtered by score, keep only a narrow,
+        # near-best subset to reduce noisy mixed context.
         if not context and matched:
-            scored = [score for _doc, score in matched if score is not None]
-            best_score = max(scored) if scored else None
-            allow_fallback = best_score is None or best_score >= DEFAULT_FALLBACK_MIN_SCORE
-            if allow_fallback:
-                for doc, _score in matched:
-                    _append_doc_to_context(doc, context, sources)
-                    if len(context) >= top_k:
-                        break
+            for doc in _select_low_confidence_fallback_docs(
+                matched,
+                top_k=top_k,
+                query_text=retrieval_question,
+            ):
+                _append_doc_to_context(doc, context, sources)
+
+        if context and len(context) < min(2, max(1, top_k)):
+            for doc in _select_near_threshold_support_docs(
+                matched,
+                min_score=min_score,
+                top_k=top_k,
+                selected_sources=sources,
+                max_extra_docs=min(2, max(0, top_k - len(context))),
+                query_text=retrieval_question,
+            ):
+                _append_doc_to_context(doc, context, sources)
+
+        if not context and backend_priority_docs:
+            for doc in backend_priority_docs:
+                _append_doc_to_context(doc, context, sources)
+                if len(context) >= top_k:
+                    break
 
         return {"mode": INTENT_KNOWLEDGE_BASE, "context": context, "sources": sources}
 
@@ -1485,7 +2011,7 @@ def _build_graph(
             return {
                 "answer": answer.strip() or unknown_reply,
                 "sources": [],
-                "quick_questions": GREETING_QUICK_QUESTIONS_EN,
+                "quick_questions": _random_faq_quick_questions(),
             }
 
         if mode == INTENT_DATABASE:
@@ -1501,7 +2027,15 @@ def _build_graph(
 
             quick_questions: list[str] = []
             if answer in {DEFAULT_UNKNOWN_REPLY_EN, DEFAULT_DATABASE_EMPTY_REPLY_EN}:
-                quick_questions = _quick_questions_for_unanswerable(question or original_question)
+                quick_questions = _quick_questions_from_similar_context(
+                    question=question or original_question,
+                    context_chunks=[],
+                    vector_store=vector_store,
+                    llm=llm,
+                    top_k=top_k,
+                    min_score=min_score,
+                    max_context_chars=max_context_chars,
+                )
             return {
                 "answer": answer,
                 "sources": db_sources,
@@ -1513,7 +2047,15 @@ def _build_graph(
                 return {
                     "answer": unknown_reply,
                     "sources": [],
-                    "quick_questions": _quick_questions_for_unanswerable(question or original_question),
+                    "quick_questions": _quick_questions_from_similar_context(
+                        question=question or original_question,
+                        context_chunks=[],
+                        vector_store=vector_store,
+                        llm=llm,
+                        top_k=top_k,
+                        min_score=min_score,
+                        max_context_chars=max_context_chars,
+                    ),
                 }
 
             context_text = _truncate_context(context_list, max_context_chars)
@@ -1534,7 +2076,15 @@ def _build_graph(
             answer = answer.strip() or unknown_reply
             quick_questions: list[str] = []
             if answer == unknown_reply:
-                quick_questions = _quick_questions_for_unanswerable(question or original_question)
+                quick_questions = _quick_questions_from_similar_context(
+                    question=question or original_question,
+                    context_chunks=context_list,
+                    vector_store=vector_store,
+                    llm=llm,
+                    top_k=top_k,
+                    min_score=min_score,
+                    max_context_chars=max_context_chars,
+                )
             return {
                 "answer": answer,
                 "sources": state.get("sources", []),
@@ -1544,7 +2094,15 @@ def _build_graph(
         return {
             "answer": DEFAULT_FALLBACK_REPLY_EN,
             "sources": [],
-            "quick_questions": _quick_questions_for_unanswerable(question or original_question),
+            "quick_questions": _quick_questions_from_similar_context(
+                question=question or original_question,
+                context_chunks=context_list,
+                vector_store=vector_store,
+                llm=llm,
+                top_k=top_k,
+                min_score=min_score,
+                max_context_chars=max_context_chars,
+            ),
         }
 
     def localize_node(state: GraphState) -> GraphState:

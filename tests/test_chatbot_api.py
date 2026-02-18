@@ -1,3 +1,4 @@
+import json
 import uuid
 
 import pytest
@@ -102,6 +103,56 @@ def test_chat_success_returns_reply_sources_and_feedback_metadata(auth_client, m
         "How can I submit a manual pool report?",
     ]
     assert "feedback_prompt" in data
+
+
+def test_chat_stream_success_returns_deltas_and_final_payload(auth_client, mocker):
+    mocker.patch(
+        "app.blueprints.chatbot.get_rag_app",
+        return_value=_FakeGraph(
+            result={
+                "answer": "test reply",
+                "sources": ["https://ntupool.org/"],
+                "quick_questions": [
+                    "Is the pool open right now?",
+                    "How can I submit a manual pool report?",
+                ],
+            }
+        ),
+    )
+    mocker.patch(
+        "app.blueprints.chatbot._persist_chatbot_exchange",
+        return_value={
+            "conversation_id": "93ab65e7-18cc-4913-8521-5ca4c2410f2b",
+            "message_counter": 11,
+            "feedback_required": False,
+        },
+    )
+
+    response = auth_client.post("/api/chat/stream", json={"message": "pool hours?"})
+    payload_lines = [
+        json.loads(line)
+        for line in response.get_data(as_text=True).splitlines()
+        if line.strip()
+    ]
+
+    assert response.status_code == 200
+    assert any(item.get("type") == "delta" for item in payload_lines)
+    final_item = payload_lines[-1]
+    assert final_item["type"] == "final"
+    assert final_item["reply"] == "test reply"
+    assert final_item["sources"] == ["https://ntupool.org/"]
+    assert final_item["quick_questions"] == [
+        "Is the pool open right now?",
+        "How can I submit a manual pool report?",
+    ]
+
+
+def test_chat_stream_requires_login(client):
+    response = client.post("/api/chat/stream", json={"message": "pool hours?"})
+    data = response.get_json()
+
+    assert response.status_code == 401
+    assert data["login_required"] is True
 
 
 def test_chat_empty_message_returns_400(auth_client):

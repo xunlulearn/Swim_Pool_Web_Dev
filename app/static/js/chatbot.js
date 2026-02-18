@@ -286,6 +286,7 @@
 
         const wrap = document.createElement("div");
         wrap.className = "mt-3 border-t border-slate-200/80 pt-2.5";
+        wrap.setAttribute("data-chatbot-quick-questions", "1");
 
         const title = document.createElement("p");
         title.className = "mb-2 text-[11px] font-semibold text-slate-500";
@@ -323,6 +324,12 @@
             wrap.appendChild(list);
             bubble.appendChild(wrap);
         }
+    };
+
+    const clearQuickQuestionPrompts = () => {
+        thread
+            .querySelectorAll("[data-chatbot-quick-questions='1']")
+            .forEach((node) => node.remove());
     };
 
     const appendMessage = ({ role, text, feedback = null, quickQuestions = [] }) => {
@@ -364,6 +371,24 @@
         wrapper.appendChild(bubble);
         thread.appendChild(wrapper);
         thread.scrollTop = thread.scrollHeight;
+        return { wrapper, bubble, textNode };
+    };
+
+    const appendAssistantDraft = () => {
+        const { wrapper, bubble, textNode } = appendMessage({
+            role: "assistant",
+            text: "",
+        });
+        textNode.innerHTML = '<p class="mb-0 text-slate-400">...</p>';
+        return { wrapper, bubble, textNode };
+    };
+
+    const updateAssistantDraft = (draft, text) => {
+        if (!draft || !draft.textNode) {
+            return;
+        }
+        draft.textNode.innerHTML = renderAssistantMarkdown(text || "");
+        thread.scrollTop = thread.scrollHeight;
     };
 
     const setLoading = (isLoading) => {
@@ -399,12 +424,14 @@
         }
 
         openPanel();
+        clearQuickQuestionPrompts();
         appendMessage({ role: "user", text: message });
         input.value = "";
         setLoading(true);
+        const assistantDraft = appendAssistantDraft();
 
         try {
-            const response = await fetch("/api/chat", {
+            const response = await fetch("/api/chat/stream", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -413,35 +440,106 @@
                 body: JSON.stringify({ message }),
             });
 
-            const data = await response.json().catch(() => ({}));
             if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
                 const errorMsg = data?.error || `Request failed (${response.status})`;
-                appendMessage({ role: "assistant", text: errorMsg });
+                updateAssistantDraft(assistantDraft, errorMsg);
                 statusEl.textContent = "";
                 return;
             }
 
-            const reply = typeof data?.reply === "string" ? data.reply.trim() : "";
-            const feedbackRequired = Boolean(data?.feedback_required);
-            const conversationId = typeof data?.conversation_id === "string" ? data.conversation_id : "";
-            const feedbackPrompt = typeof data?.feedback_prompt === "string" ? data.feedback_prompt : "";
-            const quickQuestions = Array.isArray(data?.quick_questions) ? data.quick_questions : [];
+            if (!response.body) {
+                updateAssistantDraft(assistantDraft, "Streaming is unavailable. Please try again.");
+                statusEl.textContent = "";
+                return;
+            }
 
-            appendMessage({
-                role: "assistant",
-                text: reply || "No reply returned.",
-                feedback: feedbackRequired
-                    ? {
-                          required: true,
-                          conversationId,
-                          prompt: feedbackPrompt,
-                      }
-                    : null,
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let buffer = "";
+            let replyText = "";
+            let finalPayload = null;
+            statusEl.textContent = "Assistant is typing...";
+
+            const processLine = (line) => {
+                if (!line) {
+                    return;
+                }
+                let payload = null;
+                try {
+                    payload = JSON.parse(line);
+                } catch (_error) {
+                    return;
+                }
+                if (!payload || typeof payload !== "object") {
+                    return;
+                }
+                if (payload.type === "delta" && typeof payload.delta === "string") {
+                    replyText += payload.delta;
+                    updateAssistantDraft(assistantDraft, replyText);
+                    return;
+                }
+                if (payload.type === "final") {
+                    finalPayload = payload;
+                    if (typeof payload.reply === "string" && payload.reply.trim()) {
+                        replyText = payload.reply.trim();
+                        updateAssistantDraft(assistantDraft, replyText);
+                    }
+                    return;
+                }
+                if (payload.type === "error") {
+                    throw new Error(payload.error || "Streaming request failed.");
+                }
+            };
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) {
+                    break;
+                }
+                buffer += decoder.decode(value, { stream: true });
+                while (true) {
+                    const newlineIndex = buffer.indexOf("\n");
+                    if (newlineIndex < 0) {
+                        break;
+                    }
+                    const line = buffer.slice(0, newlineIndex).trim();
+                    buffer = buffer.slice(newlineIndex + 1);
+                    processLine(line);
+                }
+            }
+
+            const trailing = buffer.trim();
+            if (trailing) {
+                processLine(trailing);
+            }
+
+            const finalReply = (replyText || "").trim() || "No reply returned.";
+            updateAssistantDraft(assistantDraft, finalReply);
+
+            const feedbackRequired = Boolean(finalPayload?.feedback_required);
+            const conversationId =
+                typeof finalPayload?.conversation_id === "string" ? finalPayload.conversation_id : "";
+            const feedbackPrompt =
+                typeof finalPayload?.feedback_prompt === "string" ? finalPayload.feedback_prompt : "";
+            const quickQuestions = Array.isArray(finalPayload?.quick_questions)
+                ? finalPayload.quick_questions
+                : [];
+
+            if (feedbackRequired) {
+                appendFeedbackWidget({
+                    bubble: assistantDraft.bubble,
+                    conversationId,
+                    promptText: feedbackPrompt,
+                });
+            }
+            appendQuickQuestions({
+                bubble: assistantDraft.bubble,
                 quickQuestions,
             });
             statusEl.textContent = "Done.";
         } catch (_error) {
-            appendMessage({ role: "assistant", text: "Request failed. Please try again." });
+            updateAssistantDraft(assistantDraft, "Request failed. Please try again.");
             statusEl.textContent = "";
         } finally {
             setLoading(false);
