@@ -60,6 +60,7 @@ Practical recommendation:
 ## 3. Install Dependencies and Run Knowledge Sync (use `.venv` only)
 
 Long-term maintenance policy: run all Python commands in this repository with `.venv`.
+Recommended entrypoint on Windows: `dev.bat`.
 
 ### 3.1 Create and prepare `.venv`
 
@@ -80,7 +81,15 @@ python -m venv .venv
 ### 3.2 Run knowledge sync in `.venv`
 
 ```bat
-.venv\Scripts\python.exe sync_knowledge_base.py
+dev.bat sync
+```
+
+Recommended preflight checks:
+
+```bat
+dev.bat doctor --strict
+dev.bat doctor --require-release-tools
+dev.bat doctor --require-deploy-tools
 ```
 
 Notes:
@@ -99,13 +108,13 @@ sync_knowledge_base.bat
 Optional debug query preview:
 
 ```bat
-.venv\Scripts\python.exe sync_knowledge_base.py --debug-query "泳池什么时候开放"
+dev.bat sync --debug-query "泳池什么时候开放"
 ```
 
 Force full namespace rebuild when needed:
 
 ```bat
-.venv\Scripts\python.exe sync_knowledge_base.py --full-rebuild
+dev.bat sync --full-rebuild
 ```
 
 ## 4. Local Smoke Test
@@ -145,9 +154,10 @@ deploy_update.bat --check-only
 
 Deploy scripts behavior:
 1. Check required env vars.
-2. Build container image.
-3. Deploy Cloud Run service with chatbot env vars.
-4. Output service URL.
+2. Run `.venv` doctor precheck (`scripts/venv_doctor.py --require-deploy-tools`).
+3. Build container image.
+4. Deploy Cloud Run service with chatbot env vars.
+5. Output service URL.
 
 Important:
 - If you double-click `deploy_update.bat`, it now auto-loads project `.env` variables.
@@ -175,7 +185,7 @@ Important:
 
 ### 7.1 `ModuleNotFoundError` during ingest
 - Ensure dependencies were installed into `.venv`:
-  `.venv\Scripts\python.exe -m pip install -r requirements.txt`
+  `dev.bat setup`
 - Ensure commands are executed with `.venv\Scripts\python.exe` rather than system `python`.
 
 ### 7.2 Chat endpoint returns fallback for every question

@@ -15,6 +15,17 @@ echo ==========================================
 set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%"
 
+set "PYTHON_BIN=.venv\Scripts\python.exe"
+if not exist "%PYTHON_BIN%" (
+    echo [ERROR] .venv is required for maintenance but not found.
+    echo Run: dev.bat setup
+    goto :fail
+)
+
+echo [PRECHECK] Validating .venv and deploy toolchain...
+"%PYTHON_BIN%" scripts\venv_doctor.py --require-deploy-tools
+if errorlevel 1 goto :fail
+
 set "PROJECT_ID=ntu-swimpool-web"
 set "SERVICE_NAME=ntu-pool"
 set "REGION=asia-southeast1"

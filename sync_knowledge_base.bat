@@ -3,23 +3,21 @@ setlocal EnableExtensions
 
 cd /d "%~dp0"
 
-if not exist ".venv\Scripts\python.exe" (
-    echo [ERROR] .venv is required but not found.
-    echo Run: python -m venv .venv ^&^& .venv\Scripts\python.exe -m pip install -r requirements.txt
+if not exist "dev.bat" (
+    echo [ERROR] Missing dev.bat entrypoint in project root.
     echo.
     pause
     exit /b 1
 )
-set "PYTHON_BIN=.venv\Scripts\python.exe"
 
 echo ==========================================
 echo   Sync NTU Pool Chatbot Knowledge Base
 echo ==========================================
 echo.
-echo Python: %PYTHON_BIN%
+echo Runtime: .venv (via dev.bat)
 echo.
 
-"%PYTHON_BIN%" sync_knowledge_base.py %*
+call "%~dp0dev.bat" sync %*
 set "EXIT_CODE=%ERRORLEVEL%"
 
 echo.

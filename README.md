@@ -48,6 +48,8 @@ For long-term maintenance, use the project virtual environment `.venv` as the si
 - app startup
 - tests
 - chatbot knowledge sync
+- database scripts
+- deploy prechecks
 
 Do not rely on system/global Python for routine project updates.
 
@@ -57,6 +59,11 @@ Do not rely on system/global Python for routine project updates.
 
 - Python 3.12+
 - pip
+- Git
+
+Optional system tools (not Python packages, validated by `dev.bat doctor`):
+- GitHub CLI (`gh`) for release publishing
+- Google Cloud SDK (`gcloud`) for Cloud Run deployment
 
 ### Installation
 
@@ -93,10 +100,15 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
+Windows shortcut:
+```bat
+dev.bat setup
+```
+
 5. Initialize database
 ```bash
 # Windows
-.venv\Scripts\python.exe init_db.py
+dev.bat init-db
 
 # Mac/Linux
 .venv/bin/python init_db.py
@@ -105,13 +117,33 @@ python3 -m venv .venv
 6. Run application
 ```bash
 # Windows
-.venv\Scripts\python.exe -m flask run
+dev.bat run
 
 # Mac/Linux
 .venv/bin/python -m flask run
 ```
 
 Visit `http://127.0.0.1:5000`.
+
+## Daily Maintenance (Windows)
+
+Use the unified project entrypoint:
+
+```bat
+dev.bat <command>
+```
+
+Common commands:
+- `dev.bat setup`
+- `dev.bat doctor --strict`
+- `dev.bat doctor --require-release-tools`
+- `dev.bat doctor --require-deploy-tools`
+- `dev.bat run`
+- `dev.bat test -q`
+- `dev.bat init-db`
+- `dev.bat reset-db`
+- `dev.bat sync --debug-query "泳池什么时候开放"`
+- `dev.bat sync --full-rebuild`
 
 ## Contribution
 
@@ -147,7 +179,7 @@ For LangGraph/LangChain chatbot deployment details, see `CHATBOT_DEPLOY.md`.
 To keep chatbot retrieval data up to date:
 
 1. Put Markdown files under `knowledge_base/`.
-2. Double-click `sync_knowledge_base.bat`.
+2. Run `dev.bat sync` (or double-click `sync_knowledge_base.bat`, which calls the same `.venv` path).
 3. Incremental sync updates vector rows from:
    - `ntupool.org` sitemap pages
    - runtime pool status + manual reports
@@ -158,7 +190,7 @@ To keep chatbot retrieval data up to date:
 Force full refresh when needed:
 ```bash
 # Windows
-.venv\Scripts\python.exe sync_knowledge_base.py --full-rebuild
+dev.bat sync --full-rebuild
 
 # Mac/Linux
 .venv/bin/python sync_knowledge_base.py --full-rebuild

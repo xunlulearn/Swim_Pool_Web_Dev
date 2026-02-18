@@ -1,6 +1,6 @@
 # NTU Pool Web FileSpec
 
-Last Updated: 2026-02-17
+Last Updated: 2026-02-18
 Purpose: Fast navigation for feature work and bug fixes. Keep this file short and action-oriented.
 
 ## 1. Start Here
@@ -8,6 +8,8 @@ Purpose: Fast navigation for feature work and bug fixes. Keep this file short an
 - Config source: `app/config.py` + project `.env`
 - Shared layout: `app/templates/base.html`
 - Chatbot frontend: `app/static/js/chatbot.js`
+- Maintenance entrypoint (Windows): `dev.bat`
+- Environment doctor: `scripts/venv_doctor.py`
 
 ## 2. Feature-to-File Routing
 - Weather API/UI:
@@ -33,6 +35,7 @@ Purpose: Fast navigation for feature work and bug fixes. Keep this file short an
 
 ## 4. Deploy and Runtime Constraints
 - Deploy scripts: `deploy.ps1`, `deploy_update.bat`
+- Deploy scripts require local `.venv` precheck via `scripts/venv_doctor.py --require-deploy-tools`.
 - Required env (typical):
   - `DATABASE_URL`
   - `OPENAI_API_KEY`

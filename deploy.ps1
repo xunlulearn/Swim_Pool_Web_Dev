@@ -5,6 +5,16 @@ $SERVICE_NAME = "ntu-pool"
 $REGION = "asia-southeast1"
 $IMAGE = "asia-southeast1-docker.pkg.dev/$PROJECT_ID/ntu-pool-repo/ntu-pool"
 
+$pythonBin = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
+if (-not (Test-Path $pythonBin)) {
+    Write-Host ".venv is required for maintenance but not found. Run: dev.bat setup" -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "[Precheck] Validating .venv and deploy toolchain..." -ForegroundColor Cyan
+& $pythonBin "scripts/venv_doctor.py" --require-deploy-tools
+if ($LASTEXITCODE -ne 0) { exit 1 }
+
 Write-Host "Starting Cloud Run deployment..." -ForegroundColor Green
 
 $gcloudPath = $null
