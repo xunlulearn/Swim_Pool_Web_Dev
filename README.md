@@ -125,6 +125,33 @@ dev.bat run
 
 Visit `http://127.0.0.1:5000`.
 
+### Local Browser Test (Codex Runbook)
+
+When you ask Codex to "test in local browser", use this exact fallback-first sequence:
+
+1. Check whether a local server is already listening:
+```bat
+netstat -ano | findstr :5000
+netstat -ano | findstr :5001
+```
+2. If not listening, start the app with `run_server.py` (this project binds to `5001`):
+```bat
+dev.bat run-server
+```
+3. Verify health before asking user to open browser:
+```bat
+curl.exe -I http://127.0.0.1:5001
+```
+4. Give the user the working URL:
+```text
+http://127.0.0.1:5001
+```
+
+Notes:
+- `run_server.py` is currently configured with `app.run(port=5001, debug=True)`.
+- `dev.bat run` (Flask default) typically serves `http://127.0.0.1:5000`.
+- If environment policy blocks programmatic browser launch, provide verified URL directly.
+
 ## Daily Maintenance (Windows)
 
 Use the unified project entrypoint:
@@ -162,7 +189,7 @@ For LangGraph/LangChain chatbot deployment details, see `CHATBOT_DEPLOY.md`.
 1. The chatbot panel is visible globally on all pages that extend the base template.
 2. Only logged-in users can send chatbot messages. Guests see a login prompt in the panel.
 3. Every successful chatbot exchange is persisted to Supabase table `chatbot_conversations`.
-4. On every 10th cumulative message per user (10/20/30...), the assistant includes a 5-star rating widget.
+4. On every 5th cumulative message per user (5/10/15...), the assistant includes a 5-star rating widget.
 5. Chatbot uses intent-first routing:
    - `small_talk`: direct LLM reply
    - `database`: function calling/tool-use against app DB, then LLM summary

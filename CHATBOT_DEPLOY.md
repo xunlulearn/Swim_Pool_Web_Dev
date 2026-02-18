@@ -46,7 +46,7 @@ Practical recommendation:
    - timestamp, user id, user/assistant messages
    - `message_counter`, `sources`, request metadata
    - feedback fields (`feedback_requested`, `rating_score`, `rating_submitted_at`)
-7. Every 10th cumulative user message (10/20/30...) returns feedback metadata; frontend renders 5-star rating UI.
+7. Every 5th cumulative user message (5/10/15...) returns feedback metadata; frontend renders 5-star rating UI.
 8. Rating submission uses `POST /api/chat/feedback` and stores a 1-5 score in Supabase.
 
 ## 2. Supabase Initialization
@@ -178,7 +178,7 @@ Important:
 11. Post/comment/report data queries should route to database tool-use path.
 12. Backend rules/config questions (for example lightning logic settings) should route to knowledge path with backend-priority context.
 13. Chat input should support `Enter` to send and `Ctrl/Cmd + Enter` for newline.
-14. On message count `10/20/30...`, response includes `feedback_required=true` and a valid `conversation_id`.
+14. On message count `5/10/15...`, response includes `feedback_required=true` and a valid `conversation_id`.
 15. Rating submit to `/api/chat/feedback` stores score successfully.
 
 ## 7. Troubleshooting

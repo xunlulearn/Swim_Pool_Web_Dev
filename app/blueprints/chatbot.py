@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from functools import lru_cache
+import re
 from uuid import UUID
 
 from flask import Blueprint, current_app, jsonify, request
@@ -23,15 +24,16 @@ except Exception as import_error:
 chatbot_bp = Blueprint("chatbot", __name__)
 
 MAX_MESSAGE_LENGTH = 2000
-FEEDBACK_INTERVAL = 10
+FEEDBACK_INTERVAL = 5
 MAX_USER_AGENT_LENGTH = 500
+MAX_FEEDBACK_COMMENT_LENGTH = 500
 DEFAULT_CHAT_LOG_TABLE = "chatbot_conversations"
 DEFAULT_UNKNOWN_REPLY = (
     "\u62b1\u6b49\uff0c\u6211\u6682\u65f6\u65e0\u6cd5\u4ece\u5b98\u7f51\u5185\u5bb9\u4e2d"
     "\u786e\u8ba4\u8be5\u95ee\u9898\uff0c\u8bf7\u4ee5 ntupool.org \u7684\u6700\u65b0\u516c\u544a\u4e3a\u51c6\u3002"
 )
 DEFAULT_FEEDBACK_PROMPT = (
-    "\u4f60\u5df2\u7d2f\u8ba1 10 \u6761\u5bf9\u8bdd\uff0c\u8bf7\u4e3a\u672c\u6b21\u56de\u7b54\u6253\u5206\uff081-5 \u661f\uff09\u3002"
+    "\u8bf7\u60a8\u5bf9\u6211\u8fdb\u884c\u6ee1\u610f\u5ea6\u8bc4\u5206\uff0c\u5e2e\u52a9\u6211\u4ee5\u540e\u53d8\u5f97\u66f4\u52a0\u806a\u660e\u3002"
 )
 
 
@@ -66,6 +68,52 @@ def _normalize_sources(raw_sources) -> list[str]:
         if source:
             sources.append(source)
     return sources
+
+
+def _normalize_quick_questions(raw_values) -> list[str]:
+    if not isinstance(raw_values, list):
+        return []
+
+    def _looks_like_question(value: str) -> bool:
+        if not value:
+            return False
+        if len(value) > 90:
+            return False
+        if "\n" in value:
+            return False
+        if re.search(r"[?？]\s*$", value):
+            return True
+        if value.endswith("\u5417"):
+            return True
+        lowered = value.lower()
+        en_prefixes = ("how ", "what ", "why ", "when ", "where ", "who ", "can ", "is ", "are ")
+        zh_prefixes = (
+            "\u5982\u4f55",
+            "\u600e\u4e48",
+            "\u4e3a\u4ec0\u4e48",
+            "\u591a\u5c11",
+            "\u662f\u5426",
+            "\u8c01",
+            "\u54ea",
+            "\u53ef\u4e0d\u53ef\u4ee5",
+            "\u80fd\u5426",
+            "\u73b0\u5728",
+        )
+        return lowered.startswith(en_prefixes) or value.startswith(zh_prefixes)
+
+    values: list[str] = []
+    for item in raw_values:
+        if not isinstance(item, str):
+            continue
+        text = item.strip()
+        if not text or text in values:
+            continue
+        if not _looks_like_question(text):
+            continue
+        values.append(text)
+        if len(values) >= 3:
+            break
+    return values
 
 
 def _parse_conversation_id(raw_value):
@@ -124,7 +172,9 @@ def _persist_chatbot_exchange(*, user_id: int, message: str, reply: str, sources
     }
 
 
-def _save_chatbot_feedback(*, user_id: int, conversation_id: str, rating: int) -> None:
+def _save_chatbot_feedback(
+    *, user_id: int, conversation_id: str, rating: int, comment: str
+) -> None:
     client = _get_supabase_client()
     table_name = _get_chat_log_table_name()
 
@@ -146,17 +196,35 @@ def _save_chatbot_feedback(*, user_id: int, conversation_id: str, rating: int) -
     if row.get("rating_score") is not None:
         raise ValueError("Rating has already been submitted.")
 
-    update_payload = {
+    update_payload: dict[str, object] = {
         "rating_score": rating,
         "rating_submitted_at": datetime.now(timezone.utc).isoformat(),
     }
-    update_response = (
-        client.table(table_name)
-        .update(update_payload)
-        .eq("id", conversation_id)
-        .eq("user_id", user_id)
-        .execute()
-    )
+    if comment:
+        update_payload["rating_comment"] = comment
+
+    def _run_update(payload: dict[str, object]):
+        return (
+            client.table(table_name)
+            .update(payload)
+            .eq("id", conversation_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+
+    try:
+        update_response = _run_update(update_payload)
+    except Exception:
+        # Keep rating flow working even before schema migration adds rating_comment.
+        if "rating_comment" not in update_payload:
+            raise
+        fallback_payload = dict(update_payload)
+        fallback_payload.pop("rating_comment", None)
+        current_app.logger.warning(
+            "chatbot_conversations.rating_comment column is unavailable; saved score without text."
+        )
+        update_response = _run_update(fallback_payload)
+
     if not (update_response.data or []):
         raise RuntimeError("Supabase update returned no rows.")
 
@@ -201,6 +269,9 @@ def chat():
         reply = reply.strip()
 
     sources = _normalize_sources(result.get("sources", []) if isinstance(result, dict) else [])
+    quick_questions = _normalize_quick_questions(
+        result.get("quick_questions", []) if isinstance(result, dict) else []
+    )
 
     try:
         log_record = _persist_chatbot_exchange(
@@ -222,6 +293,7 @@ def chat():
         "conversation_id": log_record["conversation_id"],
         "message_counter": log_record["message_counter"],
         "feedback_required": log_record["feedback_required"],
+        "quick_questions": quick_questions,
     }
     if log_record["feedback_required"]:
         response_payload["feedback_prompt"] = DEFAULT_FEEDBACK_PROMPT
@@ -250,11 +322,25 @@ def submit_feedback():
     if rating < 1 or rating > 5:
         return jsonify({"error": "`rating` must be between 1 and 5."}), 400
 
+    raw_comment = payload.get("comment", "")
+    if raw_comment is None:
+        comment = ""
+    elif isinstance(raw_comment, str):
+        comment = raw_comment.strip()
+    else:
+        return jsonify({"error": "`comment` must be a string."}), 400
+
+    if len(comment) > MAX_FEEDBACK_COMMENT_LENGTH:
+        return jsonify(
+            {"error": f"`comment` cannot exceed {MAX_FEEDBACK_COMMENT_LENGTH} characters."}
+        ), 400
+
     try:
         _save_chatbot_feedback(
             user_id=current_user.id,
             conversation_id=conversation_id,
             rating=rating,
+            comment=comment,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
@@ -265,4 +351,6 @@ def submit_feedback():
         current_app.logger.exception("Unexpected error while saving chatbot feedback.")
         return jsonify({"error": "Failed to save chatbot feedback."}), 500
 
-    return jsonify({"ok": True, "conversation_id": conversation_id, "rating": rating}), 200
+    return jsonify(
+        {"ok": True, "conversation_id": conversation_id, "rating": rating, "comment": comment}
+    ), 200

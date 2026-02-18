@@ -72,6 +72,10 @@ def test_chat_success_returns_reply_sources_and_feedback_metadata(auth_client, m
             result={
                 "answer": "test reply",
                 "sources": ["https://ntupool.org/"],
+                "quick_questions": [
+                    "Is the pool open right now?",
+                    "How can I submit a manual pool report?",
+                ],
             }
         ),
     )
@@ -93,6 +97,10 @@ def test_chat_success_returns_reply_sources_and_feedback_metadata(auth_client, m
     assert data["message_counter"] == 10
     assert data["feedback_required"] is True
     assert data["conversation_id"] == "93ab65e7-18cc-4913-8521-5ca4c2410f2b"
+    assert data["quick_questions"] == [
+        "Is the pool open right now?",
+        "How can I submit a manual pool report?",
+    ]
     assert "feedback_prompt" in data
 
 
@@ -144,8 +152,8 @@ def test_chat_feedback_requires_login(client):
     assert data["login_required"] is True
 
 
-def test_chat_feedback_success(auth_client, mocker):
-    mocker.patch("app.blueprints.chatbot._save_chatbot_feedback")
+def test_chat_feedback_success(auth_client, mocker, user_id):
+    save_feedback = mocker.patch("app.blueprints.chatbot._save_chatbot_feedback")
     conversation_id = str(uuid.uuid4())
 
     response = auth_client.post(
@@ -153,6 +161,7 @@ def test_chat_feedback_success(auth_client, mocker):
         json={
             "conversation_id": conversation_id,
             "rating": 4,
+            "comment": "Great answer quality.",
         },
     )
     data = response.get_json()
@@ -161,6 +170,13 @@ def test_chat_feedback_success(auth_client, mocker):
     assert data["ok"] is True
     assert data["conversation_id"] == conversation_id
     assert data["rating"] == 4
+    assert data["comment"] == "Great answer quality."
+    save_feedback.assert_called_once_with(
+        user_id=user_id,
+        conversation_id=conversation_id,
+        rating=4,
+        comment="Great answer quality.",
+    )
 
 
 def test_chat_feedback_invalid_rating_returns_400(auth_client):

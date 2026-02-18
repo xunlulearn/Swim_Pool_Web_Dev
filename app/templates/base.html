@@ -191,7 +191,7 @@
 
     <section
         id="chatbot-panel"
-        class="hidden fixed inset-x-3 bottom-20 z-50 flex max-h-[78vh] flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl sm:inset-x-auto sm:right-6 sm:bottom-24 sm:w-96"
+        class="hidden fixed inset-x-3 bottom-20 z-50 flex max-h-[78vh] flex-col rounded-2xl border border-slate-200/90 bg-white/95 shadow-[0_28px_60px_-30px_rgba(15,23,42,0.55)] backdrop-blur-sm sm:inset-x-auto sm:right-6 sm:bottom-24 sm:w-96"
         aria-label="NTU Pool Assistant panel"
         data-authenticated="{{ 'true' if current_user.is_authenticated else 'false' }}"
         data-login-url="{{ url_for('auth.login') }}"
@@ -216,8 +216,9 @@
             </div>
         </div>
 
-        <div id="chatbot-thread" class="flex-1 space-y-3 overflow-y-auto bg-slate-50/70 px-4 py-4">
-            <div class="max-w-[88%] rounded-2xl rounded-bl-sm border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm">
+        <div id="chatbot-thread" class="flex-1 space-y-3 overflow-y-auto bg-gradient-to-b from-slate-50 to-slate-100/70 px-4 py-4">
+            <div class="max-w-[90%] rounded-2xl rounded-bl-md border border-slate-200 bg-gradient-to-b from-white to-slate-50 px-3.5 py-2.5 text-sm text-slate-700 shadow-[0_12px_24px_-16px_rgba(15,23,42,0.45)]">
+                <p class="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">NTU Pool Assistant</p>
                 {% if current_user.is_authenticated %}
                 Hi, ask me anything about NTU Pool.
                 {% else %}
@@ -226,7 +227,7 @@
             </div>
         </div>
 
-        <div class="border-t border-slate-200 bg-white p-3">
+        <div class="border-t border-slate-200/80 bg-white/90 p-3 backdrop-blur-sm">
             <p id="chatbot-status" class="mb-2 min-h-[1.25rem] text-xs text-slate-500"></p>
             {% if current_user.is_authenticated %}
                 <div class="space-y-2">
@@ -235,7 +236,7 @@
                         id="chatbot-input"
                         rows="2"
                         maxlength="2000"
-                        class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm leading-6 text-slate-700 focus:outline-none focus:ring-2 focus:ring-ntu-blue/30 focus:border-ntu-blue resize-none"
+                        class="w-full resize-none rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-700 focus:border-ntu-blue focus:outline-none focus:ring-2 focus:ring-ntu-blue/30"
                         placeholder="Type your question..."
                     ></textarea>
                     <div class="flex items-center justify-between gap-3">
@@ -243,7 +244,7 @@
                         <button
                             id="chatbot-send"
                             type="button"
-                            class="inline-flex min-h-[44px] cursor-pointer items-center justify-center rounded-xl bg-ntu-blue px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-ntu-blue/30 disabled:cursor-not-allowed disabled:opacity-60"
+                            class="inline-flex min-h-[44px] cursor-pointer items-center justify-center rounded-xl bg-gradient-to-r from-ntu-blue to-blue-800 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:from-blue-800 hover:to-blue-900 focus:outline-none focus:ring-2 focus:ring-ntu-blue/30 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                             Send
                         </button>
@@ -268,7 +269,7 @@
     </section>
 
     {% block scripts %}{% endblock %}
-    <script src="{{ url_for('static', filename='js/chatbot.js', v='20260218-1') }}"></script>
+    <script src="{{ url_for('static', filename='js/chatbot.js', v='20260218-5') }}"></script>
     <script>
         document.addEventListener("DOMContentLoaded", () => {
             const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");

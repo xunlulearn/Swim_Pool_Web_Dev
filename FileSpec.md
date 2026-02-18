@@ -67,3 +67,15 @@ Only update this file when one of these changes:
 - Deploy-critical env dependency changed
 
 Do not duplicate full API contracts or long architecture prose here; keep detailed behavior in code/tests/docs close to implementation.
+
+## 9. Local Browser Test Runbook (Use By Default)
+- Goal: user says "open local browser test", assistant must provide a verified working localhost URL.
+- Required execution order:
+  - Check listeners: `netstat -ano | findstr :5000` and `netstat -ano | findstr :5001`
+  - If no listener, start app with `dev.bat run-server`
+  - Verify server with `curl.exe -I http://127.0.0.1:5001`
+  - Return URL to user: `http://127.0.0.1:5001`
+- Port rule for this repo:
+  - `run_server.py` binds `5001`
+  - `dev.bat run` usually binds `5000`
+- If browser launch is blocked by policy, do not stop at "cannot open"; always start service + verify URL and ask user to open that URL.

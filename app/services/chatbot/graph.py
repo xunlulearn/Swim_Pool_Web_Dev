@@ -32,12 +32,12 @@ RAG_SYSTEM_PROMPT = (
     "You are the official customer assistant for NTU Pool (ntupool.org). "
     "Answer strictly from the provided reference context only. "
     "If the context is insufficient, clearly say you do not know and suggest checking ntupool.org. "
-    "Always reply in the same language as the user."
+    "Always reply in English."
 )
 
 SMALL_TALK_SYSTEM_PROMPT = (
     "You are the official customer assistant for NTU Pool (ntupool.org). "
-    "This is casual conversation. Reply naturally and briefly, and use the same language as the user."
+    "This is casual conversation. Reply naturally and briefly in English."
 )
 
 INTENT_SYSTEM_PROMPT = (
@@ -62,7 +62,19 @@ DATABASE_SUMMARY_PROMPT = (
     "You are the NTU Pool assistant. "
     "You will receive a user question and JSON tool results fetched from the database. "
     "Answer strictly from the tool results. If no useful data exists, say so clearly. "
-    "Keep the answer concise and in the same language as the user."
+    "Keep the answer concise and in English."
+)
+
+TRANSLATE_TO_ENGLISH_SYSTEM_PROMPT = (
+    "Translate the user message into natural English for backend intent classification and retrieval. "
+    "Preserve intent, named entities, proper nouns, and numbers exactly. "
+    "Return only the translated English text."
+)
+
+TRANSLATE_FROM_ENGLISH_PROMPT_TEMPLATE = (
+    "Translate the assistant text into {target_language}. "
+    "Preserve meaning, numbers, and named entities exactly. "
+    "Return only the translated text."
 )
 
 DEFAULT_CHAT_MODEL = "gpt-4o-mini"
@@ -104,6 +116,56 @@ DEFAULT_DATABASE_EMPTY_REPLY_ZH = (
 DEFAULT_DATABASE_EMPTY_REPLY_EN = (
     "I queried the database but could not find useful data for this question."
 )
+
+LANGUAGE_LABELS = {
+    "en": "English",
+    "zh": "Simplified Chinese",
+}
+
+GREETING_QUICK_QUESTIONS_EN = [
+    "Is the pool open right now?",
+    "How can I submit a manual pool report?",
+    "What are the pool opening hours on weekdays and weekends?",
+]
+
+GENERAL_QUICK_QUESTIONS_EN = [
+    "Is the pool open right now?",
+    "How does the lightning warning rule work?",
+    "How can I submit a manual pool report?",
+]
+
+REPORT_QUICK_QUESTIONS_EN = [
+    "How can I submit a manual pool report?",
+    "Who is allowed to submit a manual report?",
+    "How many reports are needed to override weather status?",
+]
+
+HOURS_QUICK_QUESTIONS_EN = [
+    "What are the pool opening hours on weekdays?",
+    "What are the opening hours on weekends and public holidays?",
+    "Why does the system show outside operating hours?",
+]
+
+WEATHER_QUICK_QUESTIONS_EN = [
+    "How does the lightning closure rule work?",
+    "How long is the lightning cooldown before reopening?",
+    "How does heavy rain affect pool status?",
+]
+
+QUICK_QUESTION_ZH_MAP = {
+    "Is the pool open right now?": "\u73b0\u5728\u6cf3\u6c60\u5f00\u653e\u5417\uff1f",
+    "How can I submit a manual pool report?": "\u6211\u8be5\u5982\u4f55\u63d0\u4ea4\u624b\u52a8\u6cf3\u6c60\u4e0a\u62a5\uff1f",
+    "What are the pool opening hours on weekdays and weekends?": "\u5de5\u4f5c\u65e5\u548c\u5468\u672b\u7684\u6cf3\u6c60\u5f00\u653e\u65f6\u95f4\u662f\u4ec0\u4e48\uff1f",
+    "How does the lightning warning rule work?": "\u95ea\u7535\u9884\u8b66\u89c4\u5219\u662f\u600e\u6837\u7684\uff1f",
+    "Who is allowed to submit a manual report?": "\u8c01\u53ef\u4ee5\u63d0\u4ea4\u624b\u52a8\u4e0a\u62a5\uff1f",
+    "How many reports are needed to override weather status?": "\u9700\u8981\u591a\u5c11\u6761\u4e0a\u62a5\u624d\u80fd\u8986\u76d6\u5929\u6c14\u72b6\u6001\uff1f",
+    "What are the pool opening hours on weekdays?": "\u5de5\u4f5c\u65e5\u7684\u6cf3\u6c60\u5f00\u653e\u65f6\u95f4\u662f\u4ec0\u4e48\uff1f",
+    "What are the opening hours on weekends and public holidays?": "\u5468\u672b\u548c\u516c\u5171\u5047\u671f\u7684\u5f00\u653e\u65f6\u95f4\u662f\u4ec0\u4e48\uff1f",
+    "Why does the system show outside operating hours?": "\u4e3a\u4ec0\u4e48\u7cfb\u7edf\u4f1a\u663e\u793a\u8d85\u51fa\u5f00\u653e\u65f6\u6bb5\uff1f",
+    "How does the lightning closure rule work?": "\u95ea\u7535\u5173\u95ed\u89c4\u5219\u662f\u600e\u6837\u7684\uff1f",
+    "How long is the lightning cooldown before reopening?": "\u95ea\u7535\u540e\u591a\u4e45\u53ef\u4ee5\u91cd\u65b0\u5f00\u653e\uff1f",
+    "How does heavy rain affect pool status?": "\u5927\u96e8\u4f1a\u5982\u4f55\u5f71\u54cd\u6cf3\u6c60\u72b6\u6001\uff1f",
+}
 
 SMALL_TALK_EXACT = {
     "hi",
@@ -282,11 +344,14 @@ class ChatbotConfigError(RuntimeError):
 
 class GraphState(TypedDict, total=False):
     question: str
+    original_question: NotRequired[str]
+    input_language: NotRequired[str]
     intent: NotRequired[str]
     mode: NotRequired[str]
     context: NotRequired[list[str]]
     answer: NotRequired[str]
     sources: NotRequired[list[str]]
+    quick_questions: NotRequired[list[str]]
 
 
 _graph_lock = threading.Lock()
@@ -356,6 +421,178 @@ def _database_empty_reply_for_question(question: str) -> str:
     if _detect_language(question) == "en":
         return DEFAULT_DATABASE_EMPTY_REPLY_EN
     return DEFAULT_DATABASE_EMPTY_REPLY_ZH
+
+
+def _looks_like_quick_question(text: str) -> bool:
+    value = (text or "").strip()
+    if not value:
+        return False
+    if len(value) > 90:
+        return False
+    if "\n" in value:
+        return False
+    if re.search(r"[?？]\s*$", value):
+        return True
+    if value.endswith("\u5417"):
+        return True
+
+    lowered = value.lower()
+    en_prefixes = ("how ", "what ", "why ", "when ", "where ", "who ", "can ", "is ", "are ")
+    zh_prefixes = (
+        "\u5982\u4f55",
+        "\u600e\u4e48",
+        "\u4e3a\u4ec0\u4e48",
+        "\u591a\u5c11",
+        "\u662f\u5426",
+        "\u8c01",
+        "\u54ea",
+        "\u53ef\u4e0d\u53ef\u4ee5",
+        "\u80fd\u5426",
+        "\u73b0\u5728",
+    )
+    return lowered.startswith(en_prefixes) or value.startswith(zh_prefixes)
+
+
+def _normalize_quick_questions(raw: Any, *, max_items: int = 3) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    values: list[str] = []
+    for item in raw:
+        if not isinstance(item, str):
+            continue
+        text = item.strip()
+        if not text:
+            continue
+        if not _looks_like_quick_question(text):
+            continue
+        if text in values:
+            continue
+        values.append(text)
+        if len(values) >= max(1, max_items):
+            break
+    return values
+
+
+def _extract_text_content(raw: Any) -> str:
+    if isinstance(raw, str):
+        return raw.strip()
+    return str(raw or "").strip()
+
+
+def _translate_to_english(text: str, llm: ChatOpenAI) -> str:
+    source = (text or "").strip()
+    if not source:
+        return ""
+    if _detect_language(source) == "en":
+        return source
+
+    try:
+        response = llm.invoke(
+            [
+                SystemMessage(content=TRANSLATE_TO_ENGLISH_SYSTEM_PROMPT),
+                HumanMessage(content=source),
+            ]
+        )
+        translated = _extract_text_content(getattr(response, "content", ""))
+        if translated:
+            return translated
+    except Exception:
+        pass
+    return source
+
+
+def _translate_from_english(text: str, target_language: str, llm: ChatOpenAI) -> str:
+    source = (text or "").strip()
+    if not source:
+        return ""
+    if target_language == "en":
+        return source
+
+    language_label = LANGUAGE_LABELS.get(target_language, "the user's language")
+    system_prompt = TRANSLATE_FROM_ENGLISH_PROMPT_TEMPLATE.format(
+        target_language=language_label
+    )
+    try:
+        response = llm.invoke(
+            [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=source),
+            ]
+        )
+        translated = _extract_text_content(getattr(response, "content", ""))
+        if translated:
+            return translated
+    except Exception:
+        pass
+    return source
+
+
+def _translate_quick_questions(
+    quick_questions: list[str], *, target_language: str, llm: ChatOpenAI
+) -> list[str]:
+    normalized = _normalize_quick_questions(quick_questions)
+    if not normalized:
+        return []
+    if target_language == "en":
+        return normalized
+
+    if target_language == "zh":
+        mapped = [QUICK_QUESTION_ZH_MAP.get(item, "") for item in normalized]
+        resolved = _normalize_quick_questions(mapped)
+        if resolved:
+            return resolved
+        return []
+
+    translated: list[str] = []
+    for item in normalized:
+        localized = _translate_from_english(item, target_language, llm).strip()
+        if not localized:
+            continue
+        if localized not in translated:
+            translated.append(localized)
+    return _normalize_quick_questions(translated)
+
+
+def _quick_questions_for_unanswerable(question: str) -> list[str]:
+    lowered = (question or "").strip().lower()
+    if not lowered:
+        return GENERAL_QUICK_QUESTIONS_EN
+
+    report_tokens = (
+        "report",
+        "manual report",
+        "pool report",
+        "submit report",
+        "report manually",
+    )
+    if any(token in lowered for token in report_tokens):
+        return REPORT_QUICK_QUESTIONS_EN
+
+    hour_tokens = (
+        "opening hours",
+        "operating hours",
+        "open time",
+        "close time",
+        "weekday",
+        "weekend",
+        "public holiday",
+        "hours",
+    )
+    if any(token in lowered for token in hour_tokens):
+        return HOURS_QUICK_QUESTIONS_EN
+
+    weather_tokens = (
+        "lightning",
+        "rain",
+        "weather",
+        "open now",
+        "closed now",
+        "status",
+    )
+    if any(token in lowered for token in weather_tokens):
+        return WEATHER_QUICK_QUESTIONS_EN
+
+    return GENERAL_QUICK_QUESTIONS_EN
 
 
 def _is_small_talk_heuristic(question: str) -> bool:
@@ -478,30 +715,41 @@ def _merge_model_intent_with_heuristic(question: str, model_intent: str | None) 
     return heuristic_intent
 
 
-def _classify_intent(question: str, intent_llm: ChatOpenAI) -> str:
+def _classify_intent(
+    question: str, intent_llm: ChatOpenAI, fallback_question: str = ""
+) -> str:
     text = (question or "").strip()
-    if not text:
+    fallback_text = (fallback_question or "").strip()
+    if not text and not fallback_text:
         return INTENT_FALLBACK
 
-    try:
-        response = intent_llm.invoke(
-            [
-                SystemMessage(content=INTENT_SYSTEM_PROMPT),
-                HumanMessage(content=text),
-            ]
-        )
-        raw = response.content
-        raw_text = raw if isinstance(raw, str) else str(raw)
-        payload = _extract_json_object(raw_text)
-        if payload:
-            return _merge_model_intent_with_heuristic(
-                text,
-                str(payload.get("intent", "")),
+    if text:
+        try:
+            response = intent_llm.invoke(
+                [
+                    SystemMessage(content=INTENT_SYSTEM_PROMPT),
+                    HumanMessage(content=text),
+                ]
             )
-    except Exception:
-        pass
+            raw = response.content
+            raw_text = raw if isinstance(raw, str) else str(raw)
+            payload = _extract_json_object(raw_text)
+            if payload:
+                resolved = _merge_model_intent_with_heuristic(
+                    text,
+                    str(payload.get("intent", "")),
+                )
+                if resolved != INTENT_FALLBACK:
+                    return resolved
+        except Exception:
+            pass
 
-    return _heuristic_intent(text)
+    heuristic_primary = _heuristic_intent(text) if text else INTENT_FALLBACK
+    if heuristic_primary != INTENT_FALLBACK:
+        return heuristic_primary
+    if fallback_text:
+        return _heuristic_intent(fallback_text)
+    return INTENT_FALLBACK
 
 
 def _load_docs_by_source_type(
@@ -1126,9 +1374,9 @@ def _run_database_tool_use(question: str, llm: ChatOpenAI, max_tool_calls: int) 
     if not answer:
         has_non_empty_result = any(item.get("result") for item in executed_results)
         if has_non_empty_result:
-            answer = _unknown_reply_for_question(question)
+            answer = DEFAULT_UNKNOWN_REPLY_EN
         else:
-            answer = _database_empty_reply_for_question(question)
+            answer = DEFAULT_DATABASE_EMPTY_REPLY_EN
 
     return answer, sources
 
@@ -1143,21 +1391,49 @@ def _build_graph(
     max_context_chars: int,
     db_tool_max_calls: int,
 ) -> Any:
+    def preprocess_node(state: GraphState) -> GraphState:
+        original_question = (state.get("question") or "").strip()
+        if not original_question:
+            return {
+                "question": "",
+                "original_question": "",
+                "input_language": "en",
+            }
+
+        input_language = _detect_language(original_question)
+        translated_question = _translate_to_english(original_question, llm).strip()
+        if not translated_question:
+            translated_question = original_question
+        return {
+            "question": translated_question,
+            "original_question": original_question,
+            "input_language": input_language,
+        }
+
     def intent_node(state: GraphState) -> GraphState:
         question = (state.get("question") or "").strip()
-        intent = _classify_intent(question, intent_llm)
+        original_question = (state.get("original_question") or "").strip()
+        intent = _classify_intent(
+            question,
+            intent_llm,
+            fallback_question=original_question,
+        )
         return {"intent": intent}
 
     def retrieve_node(state: GraphState) -> GraphState:
         question = (state.get("question") or "").strip()
+        original_question = (state.get("original_question") or "").strip()
         intent = _normalize_intent(state.get("intent"))
-        if not question:
+        retrieval_question = question or original_question
+        if not retrieval_question:
             return {"mode": INTENT_FALLBACK, "context": [], "sources": []}
 
         if intent in {INTENT_SMALL_TALK, INTENT_DATABASE, INTENT_FALLBACK}:
             return {"mode": intent, "context": [], "sources": []}
 
-        is_backend_rules = _is_backend_rules_question(question)
+        is_backend_rules = _is_backend_rules_question(question) or _is_backend_rules_question(
+            original_question
+        )
         context: list[str] = []
         sources: list[str] = []
 
@@ -1169,7 +1445,7 @@ def _build_graph(
             if context:
                 return {"mode": INTENT_KNOWLEDGE_BASE, "context": context, "sources": sources}
 
-        matched = _search_with_optional_scores(vector_store, question, top_k)
+        matched = _search_with_optional_scores(vector_store, retrieval_question, top_k)
 
         for doc, score in matched:
             if score is not None and score < min_score:
@@ -1193,8 +1469,9 @@ def _build_graph(
     def generate_node(state: GraphState) -> GraphState:
         mode = _normalize_intent(state.get("mode"))
         question = (state.get("question") or "").strip()
+        original_question = (state.get("original_question") or "").strip()
         context_list = state.get("context", []) or []
-        unknown_reply = _unknown_reply_for_question(question)
+        unknown_reply = DEFAULT_UNKNOWN_REPLY_EN
 
         if mode == INTENT_SMALL_TALK:
             response = llm.invoke(
@@ -1205,7 +1482,11 @@ def _build_graph(
             )
             raw_answer = response.content
             answer = raw_answer if isinstance(raw_answer, str) else str(raw_answer)
-            return {"answer": answer.strip() or unknown_reply, "sources": []}
+            return {
+                "answer": answer.strip() or unknown_reply,
+                "sources": [],
+                "quick_questions": GREETING_QUICK_QUESTIONS_EN,
+            }
 
         if mode == INTENT_DATABASE:
             try:
@@ -1215,13 +1496,25 @@ def _build_graph(
                     max_tool_calls=db_tool_max_calls,
                 )
             except Exception:
-                answer = _database_empty_reply_for_question(question)
+                answer = DEFAULT_DATABASE_EMPTY_REPLY_EN
                 db_sources = []
-            return {"answer": answer, "sources": db_sources}
+
+            quick_questions: list[str] = []
+            if answer in {DEFAULT_UNKNOWN_REPLY_EN, DEFAULT_DATABASE_EMPTY_REPLY_EN}:
+                quick_questions = _quick_questions_for_unanswerable(question or original_question)
+            return {
+                "answer": answer,
+                "sources": db_sources,
+                "quick_questions": quick_questions,
+            }
 
         if mode == INTENT_KNOWLEDGE_BASE:
             if not context_list:
-                return {"answer": unknown_reply, "sources": []}
+                return {
+                    "answer": unknown_reply,
+                    "sources": [],
+                    "quick_questions": _quick_questions_for_unanswerable(question or original_question),
+                }
 
             context_text = _truncate_context(context_list, max_context_chars)
             response = llm.invoke(
@@ -1239,18 +1532,58 @@ def _build_graph(
             raw_answer = response.content
             answer = raw_answer if isinstance(raw_answer, str) else str(raw_answer)
             answer = answer.strip() or unknown_reply
-            return {"answer": answer, "sources": state.get("sources", [])}
+            quick_questions: list[str] = []
+            if answer == unknown_reply:
+                quick_questions = _quick_questions_for_unanswerable(question or original_question)
+            return {
+                "answer": answer,
+                "sources": state.get("sources", []),
+                "quick_questions": quick_questions,
+            }
 
-        return {"answer": _fallback_reply_for_question(question), "sources": []}
+        return {
+            "answer": DEFAULT_FALLBACK_REPLY_EN,
+            "sources": [],
+            "quick_questions": _quick_questions_for_unanswerable(question or original_question),
+        }
+
+    def localize_node(state: GraphState) -> GraphState:
+        input_language = str(state.get("input_language") or "en")
+        raw_answer = _extract_text_content(state.get("answer", ""))
+        answer = raw_answer or DEFAULT_UNKNOWN_REPLY_EN
+        localized_answer = _translate_from_english(answer, input_language, llm)
+
+        base_quick_questions = _normalize_quick_questions(state.get("quick_questions", []))
+        quick_questions = _translate_quick_questions(
+            base_quick_questions,
+            target_language=input_language,
+            llm=llm,
+        )
+        if not quick_questions and input_language == "en":
+            quick_questions = base_quick_questions
+        if not quick_questions and input_language == "zh":
+            quick_questions = _translate_quick_questions(
+                GENERAL_QUICK_QUESTIONS_EN,
+                target_language="zh",
+                llm=llm,
+            )
+        return {
+            "answer": localized_answer,
+            "quick_questions": quick_questions,
+        }
 
     graph = StateGraph(GraphState)
+    graph.add_node("preprocess_node", preprocess_node)
     graph.add_node("intent_node", intent_node)
     graph.add_node("retrieve_node", retrieve_node)
     graph.add_node("generate_node", generate_node)
-    graph.add_edge(START, "intent_node")
+    graph.add_node("localize_node", localize_node)
+    graph.add_edge(START, "preprocess_node")
+    graph.add_edge("preprocess_node", "intent_node")
     graph.add_edge("intent_node", "retrieve_node")
     graph.add_edge("retrieve_node", "generate_node")
-    graph.add_edge("generate_node", END)
+    graph.add_edge("generate_node", "localize_node")
+    graph.add_edge("localize_node", END)
     return graph.compile()
 
 

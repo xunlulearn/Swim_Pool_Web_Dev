@@ -59,6 +59,7 @@ create table if not exists public.chatbot_conversations (
     message_counter bigint not null check (message_counter > 0),
     feedback_requested boolean not null default false,
     rating_score smallint check (rating_score between 1 and 5),
+    rating_comment text,
     rating_submitted_at timestamptz,
     request_ip text,
     user_agent text,

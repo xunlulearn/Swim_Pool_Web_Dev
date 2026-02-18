@@ -154,7 +154,7 @@ If `SupabaseVectorStore` methods fail due SDK version mismatch, fallback to dire
   - `500`: internal error (including persistence error)
 - Behavior:
   - writes one row to `chatbot_conversations`
-  - sets `feedback_required=true` on each 10th cumulative message per user
+  - sets `feedback_required=true` on each 5th cumulative message per user
 
 ### 7.2 `POST /api/chat/feedback`
 - Request: `{"conversation_id":"<uuid>","rating":1..5}`
@@ -200,9 +200,10 @@ If `SupabaseVectorStore` methods fail due SDK version mismatch, fallback to dire
 - Unknown/low-confidence case returns polite fallback instead of hallucination.
 - `hi`/`hello`/`ÄãºÃ` should return direct chat response without source links.
 - Chinese input should receive Chinese reply; English input should receive English reply.
-- At message count 10/20/30..., 5-star feedback UI appears and rating can be saved once.
+- At message count 5/10/15..., 5-star feedback UI appears and rating can be saved once.
 
 ## 10. Out of Scope
 - Advanced crawler beyond provided URLs/sitemap.
 - Cross-session multi-turn memory for answer generation.
 - Fine-tuned domain intent model training (current implementation uses external model + local heuristics).
+
