@@ -3,17 +3,14 @@ setlocal EnableExtensions
 
 cd /d "%~dp0"
 
-if exist ".venv\Scripts\python.exe" (
-    set "PYTHON_BIN=.venv\Scripts\python.exe"
-) else (
-    set "PYTHON_BIN=python"
+if not exist ".venv\Scripts\python.exe" (
+    echo [ERROR] .venv is required but not found.
+    echo Run: python -m venv .venv ^&^& .venv\Scripts\python.exe -m pip install -r requirements.txt
+    echo.
+    pause
+    exit /b 1
 )
-
-if defined PYTHONPATH (
-    set "PYTHONPATH=%CD%\.pydeps_cmd;%PYTHONPATH%"
-) else (
-    set "PYTHONPATH=%CD%\.pydeps_cmd"
-)
+set "PYTHON_BIN=.venv\Scripts\python.exe"
 
 echo ==========================================
 echo   Sync NTU Pool Chatbot Knowledge Base

@@ -1,6 +1,6 @@
 ﻿# Chatbot Deployment Guide
 
-Updated: 2026-02-17
+Updated: 2026-02-18
 
 This runbook matches the current NTU Pool codebase and deployment scripts.
 
@@ -57,21 +57,30 @@ Practical recommendation:
    - table `chatbot_conversations`
    - function `match_documents`
 
-## 3. Install Dependencies and Run Knowledge Sync (CMD)
+## 3. Install Dependencies and Run Knowledge Sync (use `.venv` only)
 
-If global `pip` fails with permission issues, use local target folder.
+Long-term maintenance policy: run all Python commands in this repository with `.venv`.
 
-### 3.1 Clear proxy variables and install locally
-Use CMD syntax exactly as below (no spaces before `&&`):
+### 3.1 Create and prepare `.venv`
 
+CMD:
 ```bat
-set HTTP_PROXY=&& set HTTPS_PROXY=&& set ALL_PROXY=&& set GIT_HTTP_PROXY=&& set GIT_HTTPS_PROXY=&& set NO_PROXY=&& python -m pip install --target .pydeps_cmd langchain langgraph langchain-openai langchain-community supabase tiktoken beautifulsoup4
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install --upgrade pip
+.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-### 3.2 Run knowledge sync with local dependency path
+PowerShell:
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+### 3.2 Run knowledge sync in `.venv`
 
 ```bat
-set PYTHONPATH=d:\Swim_Pool_Web_Dev\.pydeps_cmd;%PYTHONPATH%&& python sync_knowledge_base.py
+.venv\Scripts\python.exe sync_knowledge_base.py
 ```
 
 Notes:
@@ -90,13 +99,13 @@ sync_knowledge_base.bat
 Optional debug query preview:
 
 ```bat
-set PYTHONPATH=d:\Swim_Pool_Web_Dev\.pydeps_cmd;%PYTHONPATH%&& python sync_knowledge_base.py --debug-query "泳池什么时候开放"
+.venv\Scripts\python.exe sync_knowledge_base.py --debug-query "泳池什么时候开放"
 ```
 
 Force full namespace rebuild when needed:
 
 ```bat
-set PYTHONPATH=d:\Swim_Pool_Web_Dev\.pydeps_cmd;%PYTHONPATH%&& python sync_knowledge_base.py --full-rebuild
+.venv\Scripts\python.exe sync_knowledge_base.py --full-rebuild
 ```
 
 ## 4. Local Smoke Test
@@ -165,8 +174,9 @@ Important:
 ## 7. Troubleshooting
 
 ### 7.1 `ModuleNotFoundError` during ingest
-- Ensure `.pydeps_cmd` install succeeded.
-- Ensure `PYTHONPATH` includes `.pydeps_cmd` before running script.
+- Ensure dependencies were installed into `.venv`:
+  `.venv\Scripts\python.exe -m pip install -r requirements.txt`
+- Ensure commands are executed with `.venv\Scripts\python.exe` rather than system `python`.
 
 ### 7.2 Chat endpoint returns fallback for every question
 - Corpus may be too small or score threshold too strict.

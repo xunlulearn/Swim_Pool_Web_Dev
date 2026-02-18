@@ -41,11 +41,21 @@ A dedicated space for NTU swimmers:
 - External API: NEA Weather API (`https://api-open.data.gov.sg/v2/real-time/api/weather?api=lightning`)
 - Frontend: HTML/CSS (mobile-first)
 
+## Development Environment Policy
+
+For long-term maintenance, use the project virtual environment `.venv` as the single Python runtime for all development tasks:
+- dependency install
+- app startup
+- tests
+- chatbot knowledge sync
+
+Do not rely on system/global Python for routine project updates.
+
 ## Getting Started
 
 ### Prerequisites
 
-- Python 3.8+
+- Python 3.12+
 - pip
 
 ### Installation
@@ -65,19 +75,40 @@ copy .env.example .env
 cp .env.example .env
 ```
 
-3. Install dependencies
+3. Create `.venv`
 ```bash
-pip install -r requirements.txt
+# Windows
+python -m venv .venv
+
+# Mac/Linux
+python3 -m venv .venv
 ```
 
-4. Initialize database
+4. Install dependencies into `.venv`
 ```bash
-python init_db.py
+# Windows
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+# Mac/Linux
+.venv/bin/python -m pip install -r requirements.txt
 ```
 
-5. Run application
+5. Initialize database
 ```bash
-flask run
+# Windows
+.venv\Scripts\python.exe init_db.py
+
+# Mac/Linux
+.venv/bin/python init_db.py
+```
+
+6. Run application
+```bash
+# Windows
+.venv\Scripts\python.exe -m flask run
+
+# Mac/Linux
+.venv/bin/python -m flask run
 ```
 
 Visit `http://127.0.0.1:5000`.
@@ -126,5 +157,9 @@ To keep chatbot retrieval data up to date:
 
 Force full refresh when needed:
 ```bash
-python sync_knowledge_base.py --full-rebuild
+# Windows
+.venv\Scripts\python.exe sync_knowledge_base.py --full-rebuild
+
+# Mac/Linux
+.venv/bin/python sync_knowledge_base.py --full-rebuild
 ```
