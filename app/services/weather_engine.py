@@ -63,6 +63,7 @@ class WeatherEngine:
         self._status_cache = None
         self._status_cache_at = None
         self._status_cache_lock = Lock()
+        self._status_refresh_lock = Lock()
 
         # 2026 Singapore public holidays (YYYY-MM-DD).
         self.PUBLIC_HOLIDAYS_2026 = {
@@ -107,6 +108,24 @@ class WeatherEngine:
         with self._status_cache_lock:
             self._status_cache = (state, message, dict(details))
             self._status_cache_at = datetime.now(timezone.utc)
+
+    def _get_stale_cached_overall_status(self):
+        with self._status_cache_lock:
+            if self._status_cache is None:
+                return None
+            state, message, details = self._status_cache
+            return state, message, dict(details)
+
+    @staticmethod
+    def _build_degraded_details(reason):
+        return {
+            "lightning_dist": None,
+            "rainfall_rate": None,
+            "lightning_count": None,
+            "min_distance_km": None,
+            "data_source": "degraded",
+            "reason": reason,
+        }
 
     def _use_sample_data(self):
         """Allow sample weather data only in DEBUG/TESTING mode."""
@@ -197,6 +216,39 @@ class WeatherEngine:
         cached = self._get_cached_overall_status()
         if cached is not None:
             return cached
+
+        # Prevent a thundering-herd when upstream weather APIs stall.
+        # If another request is already refreshing status, serve stale cache
+        # or a fast degraded response instead of blocking every worker thread.
+        if not self._status_refresh_lock.acquire(blocking=False):
+            stale = self._get_stale_cached_overall_status()
+            if stale is not None:
+                state, message, details = stale
+                degraded_details = dict(details)
+                degraded_details["stale_cache"] = True
+                degraded_details.setdefault("reason", "stale_cache")
+                return state, message, degraded_details
+
+            is_open_hours, hours_msg = self._is_operating_hours()
+            if not is_open_hours:
+                return (
+                    PoolStatus.RED,
+                    hours_msg,
+                    self._build_degraded_details("operating_hours"),
+                )
+            return (
+                PoolStatus.AMBER,
+                "Weather data temporarily unavailable",
+                self._build_degraded_details("refresh_in_progress"),
+            )
+
+        try:
+            return self._compute_overall_status()
+        finally:
+            self._status_refresh_lock.release()
+
+    def _compute_overall_status(self):
+        """Compute weather status once; callers should apply concurrency guards."""
 
         _, _, lightning_details = self.get_lightning_status()
         rainfall_rate, _, _ = self.get_rainfall_status()

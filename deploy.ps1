@@ -67,6 +67,7 @@ if ([string]::IsNullOrWhiteSpace($env:CHATBOT_TOP_K)) { $env:CHATBOT_TOP_K = "3"
 if ([string]::IsNullOrWhiteSpace($env:CHATBOT_MIN_SCORE)) { $env:CHATBOT_MIN_SCORE = "0.45" }
 if ([string]::IsNullOrWhiteSpace($env:CHATBOT_MAX_CONTEXT_CHARS)) { $env:CHATBOT_MAX_CONTEXT_CHARS = "4000" }
 if ([string]::IsNullOrWhiteSpace($env:CHATBOT_DB_TOOL_MAX_CALLS)) { $env:CHATBOT_DB_TOOL_MAX_CALLS = "4" }
+if ([string]::IsNullOrWhiteSpace($env:LIVE_STATUS_CACHE_SECONDS)) { $env:LIVE_STATUS_CACHE_SECONDS = "30" }
 
 $envVars = @(
     "FLASK_ENV=production"
@@ -86,6 +87,7 @@ $envVars = @(
     "CHATBOT_MIN_SCORE=$($env:CHATBOT_MIN_SCORE)"
     "CHATBOT_MAX_CONTEXT_CHARS=$($env:CHATBOT_MAX_CONTEXT_CHARS)"
     "CHATBOT_DB_TOOL_MAX_CALLS=$($env:CHATBOT_DB_TOOL_MAX_CALLS)"
+    "LIVE_STATUS_CACHE_SECONDS=$($env:LIVE_STATUS_CACHE_SECONDS)"
 )
 
 if (-not [string]::IsNullOrWhiteSpace($env:NEA_API_KEY)) {

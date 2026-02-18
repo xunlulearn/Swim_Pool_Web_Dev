@@ -23,5 +23,6 @@ COPY . .
 
 EXPOSE 8080
 
-# Cloud Run会设置PORT环境变量，默认为8080
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 "app:create_app()"
+# Cloud Run sets PORT (default 8080).
+# Use multiple workers and finite timeout so one blocked request cannot freeze all traffic.
+CMD exec gunicorn --bind :${PORT:-8080} --worker-class gthread --workers ${GUNICORN_WORKERS:-2} --threads ${GUNICORN_THREADS:-4} --timeout ${GUNICORN_TIMEOUT:-120} --graceful-timeout ${GUNICORN_GRACEFUL_TIMEOUT:-30} --keep-alive ${GUNICORN_KEEPALIVE:-5} "app:create_app()"
