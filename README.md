@@ -39,7 +39,7 @@ A dedicated space for NTU swimmers:
 | Create Posts | No | Yes |
 | Comment and Like | No | Yes |
 | Profile Management | No | Yes |
-| Chatbot Assistant | Login prompt only | Chat + 5-star feedback |
+| Chatbot Assistant | No | Yes |
 
 ## Tech Stack
 
