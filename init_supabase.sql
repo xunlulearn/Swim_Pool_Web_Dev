@@ -76,3 +76,35 @@ where feedback_requested is true;
 create index if not exists chatbot_conversations_rating_score_idx
 on public.chatbot_conversations (rating_score)
 where rating_score is not null;
+
+create table if not exists public.chatbot_intent_model_failures (
+    id uuid primary key default gen_random_uuid(),
+    failed_at timestamptz not null default now(),
+    model_name text not null,
+    operation text not null,
+    error_type text,
+    error_message text not null,
+    metadata jsonb not null default '{}'::jsonb
+);
+
+create index if not exists chatbot_intent_model_failures_failed_at_idx
+on public.chatbot_intent_model_failures (failed_at desc);
+
+create index if not exists chatbot_intent_model_failures_model_name_idx
+on public.chatbot_intent_model_failures (model_name, failed_at desc);
+
+create table if not exists public.chatbot_qa_model_failures (
+    id uuid primary key default gen_random_uuid(),
+    failed_at timestamptz not null default now(),
+    model_name text not null,
+    operation text not null,
+    error_type text,
+    error_message text not null,
+    metadata jsonb not null default '{}'::jsonb
+);
+
+create index if not exists chatbot_qa_model_failures_failed_at_idx
+on public.chatbot_qa_model_failures (failed_at desc);
+
+create index if not exists chatbot_qa_model_failures_model_name_idx
+on public.chatbot_qa_model_failures (model_name, failed_at desc);

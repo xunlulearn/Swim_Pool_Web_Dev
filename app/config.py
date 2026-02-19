@@ -78,6 +78,12 @@ class Config:
     SUPABASE_DOCS_TABLE = os.environ.get('SUPABASE_DOCS_TABLE') or 'pool_documents'
     SUPABASE_MATCH_FUNCTION = os.environ.get('SUPABASE_MATCH_FUNCTION') or 'match_documents'
     SUPABASE_CHAT_LOG_TABLE = os.environ.get('SUPABASE_CHAT_LOG_TABLE') or 'chatbot_conversations'
+    SUPABASE_INTENT_LLM_FAILURE_TABLE = (
+        os.environ.get('SUPABASE_INTENT_LLM_FAILURE_TABLE') or 'chatbot_intent_model_failures'
+    )
+    SUPABASE_QA_LLM_FAILURE_TABLE = (
+        os.environ.get('SUPABASE_QA_LLM_FAILURE_TABLE') or 'chatbot_qa_model_failures'
+    )
     CHATBOT_TOP_K = env_int('CHATBOT_TOP_K', 3)
     CHATBOT_MIN_SCORE = env_float('CHATBOT_MIN_SCORE', 0.45)
     CHATBOT_MAX_CONTEXT_CHARS = env_int('CHATBOT_MAX_CONTEXT_CHARS', 4000)

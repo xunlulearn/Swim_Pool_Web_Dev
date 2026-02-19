@@ -32,6 +32,14 @@ class _IntentLLM:
         return _FakeResponse(self.payload)
 
 
+class _FailingLLM:
+    def __init__(self, message="model call failed"):
+        self.message = message
+
+    def invoke(self, _messages):
+        raise RuntimeError(self.message)
+
+
 def test_classify_intent_uses_model_json():
     intent = graph_module._classify_intent(
         "show me latest community posts",
@@ -107,15 +115,6 @@ def test_graph_small_talk_skips_retrieval(monkeypatch):
         raise AssertionError("retrieval should not run for small talk")
 
     monkeypatch.setattr(graph_module, "_search_with_optional_scores", _should_not_search)
-    monkeypatch.setattr(
-        graph_module,
-        "_random_faq_quick_questions",
-        lambda count=3: [
-            "Is the pool open right now?",
-            "How can I submit a manual pool report?",
-            "What are the swimming pool opening hours?",
-        ],
-    )
 
     llm = _FakeLLM(reply="hi there")
     intent_llm = _IntentLLM('{"intent":"small_talk","reason":"greeting"}')
@@ -132,11 +131,7 @@ def test_graph_small_talk_skips_retrieval(monkeypatch):
     result = rag_app.invoke({"question": "hi"})
     assert result["answer"] == "hi there"
     assert result.get("sources", []) == []
-    assert result["quick_questions"] == [
-        "Is the pool open right now?",
-        "How can I submit a manual pool report?",
-        "What are the swimming pool opening hours?",
-    ]
+    assert result["quick_questions"] == []
 
 
 def test_graph_knowledge_base_path_returns_unknown_when_no_context(monkeypatch):
@@ -186,6 +181,85 @@ def test_graph_knowledge_base_path_uses_retrieved_context(monkeypatch):
     result = rag_app.invoke({"question": "pool open close time"})
     assert result["answer"] == "KB answer"
     assert result["sources"] == ["https://ntupool.org/"]
+    assert result["quick_questions"] == []
+
+
+def test_graph_known_answer_does_not_return_quick_questions_for_zh(monkeypatch):
+    doc = Document(
+        page_content="Follow the register page flow on ntupool.org to create an account.",
+        metadata={"source": "https://ntupool.org/"},
+    )
+    monkeypatch.setattr(
+        graph_module,
+        "_search_with_optional_scores",
+        lambda _store, _question, _top_k: [(doc, 0.88)],
+    )
+    monkeypatch.setattr(
+        graph_module,
+        "_translate_to_english",
+        lambda question, intent_llm, qa_llm: "How do I register an account?",
+    )
+    monkeypatch.setattr(
+        graph_module,
+        "_translate_from_english",
+        lambda text, target_language, llm: text,
+    )
+
+    llm = _FakeLLM(reply="Use the Register page on ntupool.org.")
+    intent_llm = _IntentLLM('{"intent":"knowledge_base","reason":"account question"}')
+    rag_app = graph_module._build_graph(
+        llm=llm,
+        intent_llm=intent_llm,
+        vector_store=object(),
+        top_k=3,
+        min_score=0.65,
+        max_context_chars=4000,
+        db_tool_max_calls=3,
+    )
+
+    result = rag_app.invoke({"question": "\u5982\u4f55\u6ce8\u518c\u8d26\u53f7\uff1f"})
+    assert result["answer"] == "Use the Register page on ntupool.org."
+    assert result["quick_questions"] == []
+
+
+def test_graph_unknown_answer_returns_three_related_faq_questions(monkeypatch):
+    monkeypatch.setattr(graph_module, "_search_with_optional_scores", lambda _s, _q, _k: [])
+    monkeypatch.setattr(
+        graph_module,
+        "_translate_to_english",
+        lambda question, intent_llm, qa_llm: "How do I register?",
+    )
+    monkeypatch.setattr(
+        graph_module,
+        "_translate_from_english",
+        lambda text, target_language, llm: text,
+    )
+
+    llm = _FakeLLM(reply="unused")
+    intent_llm = _IntentLLM('{"intent":"knowledge_base","reason":"registration query"}')
+    rag_app = graph_module._build_graph(
+        llm=llm,
+        intent_llm=intent_llm,
+        vector_store=object(),
+        top_k=3,
+        min_score=0.65,
+        max_context_chars=4000,
+        db_tool_max_calls=3,
+    )
+
+    result = rag_app.invoke({"question": "\u5982\u4f55\u6ce8\u518c\uff1f"})
+    faq_questions = set(graph_module._load_faq_questions())
+    faq_questions_zh = {
+        localized
+        for original, localized in graph_module.QUICK_QUESTION_ZH_MAP.items()
+        if original in faq_questions
+    }
+    assert result["answer"] == graph_module.DEFAULT_UNKNOWN_REPLY_EN
+    assert len(result["quick_questions"]) == 3
+    assert all(
+        item in faq_questions or item in faq_questions_zh for item in result["quick_questions"]
+    )
+    assert "How do I register an account?" in result["quick_questions"]
 
 
 def test_graph_knowledge_base_low_confidence_fallback_keeps_near_best_docs(monkeypatch):
@@ -372,7 +446,7 @@ def test_graph_translates_non_english_question_before_database_query(monkeypatch
     monkeypatch.setattr(
         graph_module,
         "_translate_to_english",
-        lambda question, llm: "list latest manual reports",
+        lambda question, intent_llm, qa_llm: "list latest manual reports",
     )
     monkeypatch.setattr(
         graph_module,
@@ -423,6 +497,44 @@ def test_translate_quick_questions_uses_deterministic_zh_mapping():
     ]
 
 
+def test_translate_to_english_falls_back_to_qa_model_when_intent_model_fails(monkeypatch):
+    captured_failures = []
+
+    def _capture_failure(**kwargs):
+        captured_failures.append(kwargs)
+
+    monkeypatch.setattr(graph_module, "_record_model_failure", _capture_failure)
+
+    translated = graph_module._translate_to_english(
+        "\u5982\u4f55\u6ce8\u518c\uff1f",
+        _FailingLLM("intent model timeout"),
+        _FakeLLM(reply="How do I register an account?"),
+    )
+
+    assert translated == "How do I register an account?"
+    assert any(item["model_kind"] == graph_module.MODEL_KIND_INTENT for item in captured_failures)
+
+
+def test_translate_to_english_logs_validation_failure_before_fallback(monkeypatch):
+    captured_failures = []
+
+    def _capture_failure(**kwargs):
+        captured_failures.append(kwargs)
+
+    monkeypatch.setattr(graph_module, "_record_model_failure", _capture_failure)
+
+    translated = graph_module._translate_to_english(
+        "\u5982\u4f55\u6ce8\u518c\uff1f",
+        _FakeLLM(reply="\u5982\u4f55\u6ce8\u518c\uff1f"),
+        _FakeLLM(reply="How do I register an account?"),
+    )
+
+    assert translated == "How do I register an account?"
+    assert any(
+        item["error_type"] == "TranslationValidationError" for item in captured_failures
+    )
+
+
 def test_graph_fallback_path_returns_fallback_reply():
     llm = _FakeLLM(reply="unused")
     intent_llm = _IntentLLM('{"intent":"fallback","reason":"out of scope"}')
@@ -439,6 +551,8 @@ def test_graph_fallback_path_returns_fallback_reply():
     result = rag_app.invoke({"question": "write a C compiler from scratch"})
     assert "outside my supported scope" in result["answer"]
     assert result.get("sources", []) == []
+    assert len(result["quick_questions"]) == 3
+    assert set(result["quick_questions"]).issubset(set(graph_module._load_faq_questions()))
 
 
 def test_search_with_optional_scores_falls_through_when_first_method_returns_empty():

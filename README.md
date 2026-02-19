@@ -200,6 +200,10 @@ For LangGraph/LangChain chatbot deployment details, see `CHATBOT_DEPLOY.md`.
 8. Reply language follows user input language.
 9. Chat input behavior: `Enter` sends message, `Ctrl/Cmd + Enter` inserts newline.
 10. When knowledge retrieval is used, `sources` are returned if available.
+11. Translation pipeline for non-English input uses intent model first, then falls back to QA model if the primary translation fails.
+12. Every model invocation failure is logged to Supabase tables:
+   - `chatbot_intent_model_failures`
+   - `chatbot_qa_model_failures`
 
 ## Chatbot Knowledge Sync
 

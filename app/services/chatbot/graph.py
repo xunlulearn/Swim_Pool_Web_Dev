@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from functools import lru_cache
 import json
 import os
@@ -93,6 +95,11 @@ DEFAULT_LOW_CONFIDENCE_SCORE_WINDOW = 0.06
 DEFAULT_LOW_CONFIDENCE_MAX_DOCS = 3
 DEFAULT_MAX_CONTEXT_CHARS = 4000
 DEFAULT_DB_TOOL_MAX_CALLS = 4
+MODEL_KIND_INTENT = "intent"
+MODEL_KIND_QA = "qa"
+DEFAULT_INTENT_LLM_FAILURE_TABLE = "chatbot_intent_model_failures"
+DEFAULT_QA_LLM_FAILURE_TABLE = "chatbot_qa_model_failures"
+MAX_MODEL_FAILURE_TEXT_LENGTH = 2000
 
 DEFAULT_UNKNOWN_REPLY_ZH = (
     "\u62b1\u6b49\uff0c\u6211\u6682\u65f6\u65e0\u6cd5\u4ece\u53ef\u7528\u5185\u5bb9\u4e2d\u786e\u8ba4\u8fd9\u4e2a\u95ee\u9898\uff0c"
@@ -531,6 +538,110 @@ def _get_int_env(name: str, default: int) -> int:
         raise ChatbotConfigError(f"Invalid integer value for {name}: {raw}") from exc
 
 
+@lru_cache(maxsize=1)
+def _get_cached_logging_supabase_client(supabase_url: str, service_role_key: str):
+    return create_client(supabase_url, service_role_key)
+
+
+def _model_failure_table_name(model_kind: str) -> str:
+    if model_kind == MODEL_KIND_INTENT:
+        return (
+            os.getenv("SUPABASE_INTENT_LLM_FAILURE_TABLE", "").strip()
+            or DEFAULT_INTENT_LLM_FAILURE_TABLE
+        )
+    return (
+        os.getenv("SUPABASE_QA_LLM_FAILURE_TABLE", "").strip()
+        or DEFAULT_QA_LLM_FAILURE_TABLE
+    )
+
+
+def _resolve_llm_model_name(llm: Any) -> str:
+    model_name = str(
+        getattr(llm, "model_name", "") or getattr(llm, "model", "") or ""
+    ).strip()
+    return model_name or "unknown"
+
+
+def _truncate_failure_text(text: str, *, max_length: int = MAX_MODEL_FAILURE_TEXT_LENGTH) -> str:
+    value = str(text or "").strip()
+    if len(value) <= max_length:
+        return value
+    return value[: max(0, max_length - 1)] + "…"
+
+
+def _normalize_failure_metadata(raw_metadata: Any) -> dict[str, Any]:
+    if not isinstance(raw_metadata, dict):
+        return {}
+    normalized: dict[str, Any] = {}
+    for key, value in raw_metadata.items():
+        if not isinstance(key, str):
+            continue
+        item_key = key.strip()
+        if not item_key:
+            continue
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            normalized[item_key] = value
+            continue
+        normalized[item_key] = str(value)
+    return normalized
+
+
+def _record_model_failure(
+    *,
+    model_kind: str,
+    llm: Any,
+    operation: str,
+    error_type: str,
+    error_message: str,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    supabase_url = os.getenv("SUPABASE_URL", "").strip()
+    service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    if not supabase_url or not service_role_key:
+        return
+
+    table_name = _model_failure_table_name(model_kind)
+    if not table_name:
+        return
+
+    payload = {
+        "failed_at": datetime.now(timezone.utc).isoformat(),
+        "model_name": _resolve_llm_model_name(llm),
+        "operation": str(operation or "").strip() or "unknown_operation",
+        "error_type": _truncate_failure_text(error_type),
+        "error_message": _truncate_failure_text(error_message),
+        "metadata": _normalize_failure_metadata(metadata or {}),
+    }
+    try:
+        client = _get_cached_logging_supabase_client(supabase_url, service_role_key)
+        client.table(table_name).insert(payload).execute()
+    except Exception:
+        # Logging must never block chatbot main flow.
+        pass
+
+
+def _invoke_llm_with_failure_logging(
+    *,
+    llm: Any,
+    model_kind: str,
+    operation: str,
+    messages: list[Any],
+    metadata: dict[str, Any] | None = None,
+) -> Any:
+    try:
+        return llm.invoke(messages)
+    except Exception as exc:
+        _record_model_failure(
+            model_kind=model_kind,
+            llm=llm,
+            operation=operation,
+            error_type=type(exc).__name__,
+            error_message=str(exc),
+            metadata=metadata,
+        )
+        raise
+
+
 def _coerce_score(value: Any) -> float | None:
     if value is None:
         return None
@@ -624,25 +735,56 @@ def _extract_text_content(raw: Any) -> str:
     return str(raw or "").strip()
 
 
-def _translate_to_english(text: str, llm: ChatOpenAI) -> str:
+def _translate_to_english(text: str, intent_llm: Any, qa_llm: Any) -> str:
     source = (text or "").strip()
     if not source:
         return ""
     if _detect_language(source) == "en":
         return source
 
-    try:
-        response = llm.invoke(
-            [
-                SystemMessage(content=TRANSLATE_TO_ENGLISH_SYSTEM_PROMPT),
-                HumanMessage(content=source),
-            ]
-        )
-        translated = _extract_text_content(getattr(response, "content", ""))
-        if translated:
-            return translated
-    except Exception:
-        pass
+    translate_messages = [
+        SystemMessage(content=TRANSLATE_TO_ENGLISH_SYSTEM_PROMPT),
+        HumanMessage(content=source),
+    ]
+
+    model_chain = [
+        (MODEL_KIND_INTENT, intent_llm, "translate_to_english.intent_primary"),
+        (MODEL_KIND_QA, qa_llm, "translate_to_english.qa_fallback"),
+    ]
+    for model_kind, model_client, operation in model_chain:
+        try:
+            response = _invoke_llm_with_failure_logging(
+                llm=model_client,
+                model_kind=model_kind,
+                operation=operation,
+                messages=translate_messages,
+                metadata={"source_language": _detect_language(source)},
+            )
+            translated = _extract_text_content(getattr(response, "content", ""))
+            if translated and _detect_language(translated) == "en":
+                return translated
+            _record_model_failure(
+                model_kind=model_kind,
+                llm=model_client,
+                operation=f"{operation}.validation",
+                error_type="TranslationValidationError",
+                error_message="Translation output is empty or not English.",
+                metadata={
+                    "source_language": _detect_language(source),
+                    "translated_preview": _truncate_failure_text(translated, max_length=120),
+                },
+            )
+        except Exception:
+            continue
+
+    _record_model_failure(
+        model_kind=MODEL_KIND_QA,
+        llm=qa_llm,
+        operation="translate_to_english.exhausted_fallbacks",
+        error_type="TranslationFallbackExhausted",
+        error_message="Both intent and QA models failed to provide usable English translation.",
+        metadata={"source_language": _detect_language(source)},
+    )
     return source
 
 
@@ -658,11 +800,15 @@ def _translate_from_english(text: str, target_language: str, llm: ChatOpenAI) ->
         target_language=language_label
     )
     try:
-        response = llm.invoke(
-            [
+        response = _invoke_llm_with_failure_logging(
+            llm=llm,
+            model_kind=MODEL_KIND_QA,
+            operation="translate_from_english.qa",
+            messages=[
                 SystemMessage(content=system_prompt),
                 HumanMessage(content=source),
-            ]
+            ],
+            metadata={"target_language": target_language},
         )
         translated = _extract_text_content(getattr(response, "content", ""))
         if translated:
@@ -734,6 +880,99 @@ def _load_faq_questions() -> tuple[str, ...]:
     return tuple(questions)
 
 
+def _word_tokens_for_similarity(text: str) -> set[str]:
+    value = (text or "").strip().lower()
+    if not value:
+        return set()
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", value)
+        if len(token) >= 2 and token not in KEYWORD_OVERLAP_STOPWORDS
+    }
+
+
+def _token_jaccard_ratio(query_text: str, candidate_text: str) -> float:
+    query_tokens = _word_tokens_for_similarity(query_text)
+    candidate_tokens = _word_tokens_for_similarity(candidate_text)
+    if not query_tokens or not candidate_tokens:
+        return 0.0
+    intersection = len(query_tokens & candidate_tokens)
+    union = len(query_tokens | candidate_tokens)
+    if union <= 0:
+        return 0.0
+    return intersection / union
+
+
+def _faq_question_relevance_score(query_text: str, candidate_text: str) -> float:
+    query = (query_text or "").strip()
+    candidate = (candidate_text or "").strip()
+    if not query or not candidate:
+        return 0.0
+
+    overlap_ratio = _keyword_overlap_ratio(query, candidate)
+    jaccard_ratio = _token_jaccard_ratio(query, candidate)
+    sequence_ratio = SequenceMatcher(None, query.lower(), candidate.lower()).ratio()
+
+    normalized_query = " ".join(re.findall(r"[a-z0-9]+", query.lower()))
+    normalized_candidate = " ".join(re.findall(r"[a-z0-9]+", candidate.lower()))
+    contains_bonus = 0.2 if normalized_query and normalized_query in normalized_candidate else 0.0
+
+    return (
+        overlap_ratio * 0.58
+        + jaccard_ratio * 0.27
+        + sequence_ratio * 0.15
+        + contains_bonus
+    )
+
+
+def _related_faq_quick_questions(
+    question: str,
+    *,
+    generated_hints: list[str] | None = None,
+    count: int = 3,
+) -> list[str]:
+    desired = max(1, int(count))
+    faq_questions = list(_load_faq_questions())
+    if not faq_questions:
+        fallback = _quick_questions_for_unanswerable(question)
+        return _normalize_quick_questions(fallback, max_items=desired)
+
+    query = (question or "").strip()
+    hints = _normalize_quick_questions(generated_hints or [], max_items=desired)
+    for seeded in _quick_questions_for_unanswerable(query):
+        if seeded not in hints:
+            hints.append(seeded)
+
+    scored: list[tuple[str, float, float, float]] = []
+    for faq_question in faq_questions:
+        query_score = _faq_question_relevance_score(query, faq_question)
+        hint_score = 0.0
+        for hint in hints:
+            hint_score = max(hint_score, _faq_question_relevance_score(hint, faq_question))
+        combined_score = query_score + (hint_score * 0.4)
+        scored.append((faq_question, combined_score, query_score, hint_score))
+
+    scored.sort(key=lambda item: (item[1], item[2], item[3]), reverse=True)
+
+    selected: list[str] = []
+    for faq_question, _combined_score, _query_score, _hint_score in scored:
+        if faq_question in selected:
+            continue
+        selected.append(faq_question)
+        if len(selected) >= desired:
+            break
+
+    if len(selected) < desired:
+        for faq_question in faq_questions:
+            if faq_question in selected:
+                continue
+            selected.append(faq_question)
+            if len(selected) >= desired:
+                break
+
+    return _normalize_quick_questions(selected, max_items=desired)
+
+
 def _random_faq_quick_questions(*, count: int = 3) -> list[str]:
     desired = max(1, int(count))
     faq_questions = list(_load_faq_questions())
@@ -776,8 +1015,11 @@ def _generate_quick_questions_from_context(
         return []
 
     try:
-        response = llm.invoke(
-            [
+        response = _invoke_llm_with_failure_logging(
+            llm=llm,
+            model_kind=MODEL_KIND_QA,
+            operation="generate_quick_questions_from_context.qa",
+            messages=[
                 SystemMessage(content=UNKNOWN_GUIDE_QUESTION_SYSTEM_PROMPT),
                 HumanMessage(
                     content=(
@@ -786,7 +1028,8 @@ def _generate_quick_questions_from_context(
                         "Return JSON only."
                     )
                 ),
-            ]
+            ],
+            metadata={"context_chunks": len(normalized_context)},
         )
         payload = _extract_json_object(_extract_text_content(getattr(response, "content", "")))
         if not payload:
@@ -845,9 +1088,11 @@ def _quick_questions_from_similar_context(
         llm=llm,
         max_context_chars=max_context_chars,
     )
-    if generated:
-        return generated
-    return _quick_questions_for_unanswerable(query)
+    return _related_faq_quick_questions(
+        query,
+        generated_hints=generated,
+        count=3,
+    )
 
 
 def _quick_questions_for_unanswerable(question: str) -> list[str]:
@@ -1068,11 +1313,15 @@ def _classify_intent(
 
     if text:
         try:
-            response = intent_llm.invoke(
-                [
+            response = _invoke_llm_with_failure_logging(
+                llm=intent_llm,
+                model_kind=MODEL_KIND_INTENT,
+                operation="classify_intent.intent",
+                messages=[
                     SystemMessage(content=INTENT_SYSTEM_PROMPT),
                     HumanMessage(content=text),
-                ]
+                ],
+                metadata={"question_preview": _truncate_failure_text(text, max_length=120)},
             )
             raw = response.content
             raw_text = raw if isinstance(raw, str) else str(raw)
@@ -1084,6 +1333,15 @@ def _classify_intent(
                 )
                 if resolved != INTENT_FALLBACK:
                     return resolved
+            else:
+                _record_model_failure(
+                    model_kind=MODEL_KIND_INTENT,
+                    llm=intent_llm,
+                    operation="classify_intent.intent.parse_json",
+                    error_type="IntentPayloadParseError",
+                    error_message="Intent model response is not valid JSON.",
+                    metadata={"raw_preview": _truncate_failure_text(raw_text, max_length=180)},
+                )
         except Exception:
             pass
 
@@ -1781,7 +2039,13 @@ def _run_database_tool_use(question: str, llm: ChatOpenAI, max_tool_calls: int) 
     call_count = 0
 
     while call_count < call_budget:
-        ai_message = tool_enabled_llm.invoke(messages)
+        ai_message = _invoke_llm_with_failure_logging(
+            llm=tool_enabled_llm,
+            model_kind=MODEL_KIND_QA,
+            operation="database_tool_use.qa_tool_planner",
+            messages=messages,
+            metadata={"call_count": call_count, "call_budget": call_budget},
+        )
         messages.append(ai_message)
         tool_calls = getattr(ai_message, "tool_calls", None) or []
         if not tool_calls:
@@ -1859,11 +2123,15 @@ def _run_database_tool_use(question: str, llm: ChatOpenAI, max_tool_calls: int) 
     }
 
     try:
-        summary_response = llm.invoke(
-            [
+        summary_response = _invoke_llm_with_failure_logging(
+            llm=llm,
+            model_kind=MODEL_KIND_QA,
+            operation="database_tool_use.qa_summary",
+            messages=[
                 SystemMessage(content=DATABASE_SUMMARY_PROMPT),
                 HumanMessage(content=json.dumps(summary_payload, ensure_ascii=False)),
-            ]
+            ],
+            metadata={"tool_results_count": len(executed_results)},
         )
         raw_answer = summary_response.content
         answer = raw_answer if isinstance(raw_answer, str) else str(raw_answer)
@@ -1901,7 +2169,11 @@ def _build_graph(
             }
 
         input_language = _detect_language(original_question)
-        translated_question = _translate_to_english(original_question, llm).strip()
+        translated_question = _translate_to_english(
+            original_question,
+            intent_llm,
+            llm,
+        ).strip()
         if not translated_question:
             translated_question = original_question
         return {
@@ -2000,18 +2272,34 @@ def _build_graph(
         unknown_reply = DEFAULT_UNKNOWN_REPLY_EN
 
         if mode == INTENT_SMALL_TALK:
-            response = llm.invoke(
-                [
+            response = _invoke_llm_with_failure_logging(
+                llm=llm,
+                model_kind=MODEL_KIND_QA,
+                operation="generate_answer.small_talk.qa",
+                messages=[
                     SystemMessage(content=SMALL_TALK_SYSTEM_PROMPT),
                     HumanMessage(content=question),
-                ]
+                ],
+                metadata={"mode": INTENT_SMALL_TALK},
             )
             raw_answer = response.content
             answer = raw_answer if isinstance(raw_answer, str) else str(raw_answer)
+            answer = answer.strip() or unknown_reply
+            quick_questions: list[str] = []
+            if answer == unknown_reply:
+                quick_questions = _quick_questions_from_similar_context(
+                    question=question or original_question,
+                    context_chunks=[],
+                    vector_store=vector_store,
+                    llm=llm,
+                    top_k=top_k,
+                    min_score=min_score,
+                    max_context_chars=max_context_chars,
+                )
             return {
-                "answer": answer.strip() or unknown_reply,
+                "answer": answer,
                 "sources": [],
-                "quick_questions": _random_faq_quick_questions(),
+                "quick_questions": quick_questions,
             }
 
         if mode == INTENT_DATABASE:
@@ -2059,8 +2347,11 @@ def _build_graph(
                 }
 
             context_text = _truncate_context(context_list, max_context_chars)
-            response = llm.invoke(
-                [
+            response = _invoke_llm_with_failure_logging(
+                llm=llm,
+                model_kind=MODEL_KIND_QA,
+                operation="generate_answer.knowledge_base.qa",
+                messages=[
                     SystemMessage(content=RAG_SYSTEM_PROMPT),
                     HumanMessage(
                         content=(
@@ -2069,7 +2360,8 @@ def _build_graph(
                             "Answer using only the reference context."
                         )
                     ),
-                ]
+                ],
+                metadata={"mode": INTENT_KNOWLEDGE_BASE, "context_chunks": len(context_list)},
             )
             raw_answer = response.content
             answer = raw_answer if isinstance(raw_answer, str) else str(raw_answer)
@@ -2119,12 +2411,6 @@ def _build_graph(
         )
         if not quick_questions and input_language == "en":
             quick_questions = base_quick_questions
-        if not quick_questions and input_language == "zh":
-            quick_questions = _translate_quick_questions(
-                GENERAL_QUICK_QUESTIONS_EN,
-                target_language="zh",
-                llm=llm,
-            )
         return {
             "answer": localized_answer,
             "quick_questions": quick_questions,
