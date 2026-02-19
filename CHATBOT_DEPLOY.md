@@ -1,6 +1,6 @@
 ﻿# Chatbot Deployment Guide
 
-Updated: 2026-02-18
+Updated: 2026-02-19
 
 This runbook matches the current NTU Pool codebase and deployment scripts.
 
@@ -28,6 +28,8 @@ Optional (defaults in code):
 13. `CHATBOT_DB_TOOL_MAX_CALLS` (default `4`)
 14. `NEA_API_KEY` (weather module)
 15. `SECRET_KEY` (if missing, deploy script auto-generates)
+16. `SUPABASE_INTENT_LLM_FAILURE_TABLE` (default `chatbot_intent_model_failures`)
+17. `SUPABASE_QA_LLM_FAILURE_TABLE` (default `chatbot_qa_model_failures`)
 
 Practical recommendation:
 - Start from `CHATBOT_MIN_SCORE=0.45`; lower to `0.3` or `0` only when recall is still too strict.
@@ -48,6 +50,10 @@ Practical recommendation:
    - feedback fields (`feedback_requested`, `rating_score`, `rating_submitted_at`)
 7. Every 5th cumulative user message (5/10/15...) returns feedback metadata; frontend renders 5-star rating UI.
 8. Rating submission uses `POST /api/chat/feedback` and stores a 1-5 score in Supabase.
+9. Non-English input translation now uses intent model first and falls back to QA model when primary translation fails.
+10. Every model invocation failure is logged in Supabase:
+   - intent model failures -> `chatbot_intent_model_failures`
+   - QA model failures -> `chatbot_qa_model_failures`
 
 ## 2. Supabase Initialization
 1. Open Supabase SQL Editor.
@@ -55,6 +61,8 @@ Practical recommendation:
 3. Verify:
    - table `pool_documents`
    - table `chatbot_conversations`
+   - table `chatbot_intent_model_failures`
+   - table `chatbot_qa_model_failures`
    - function `match_documents`
 
 ## 3. Install Dependencies and Run Knowledge Sync (use `.venv` only)
