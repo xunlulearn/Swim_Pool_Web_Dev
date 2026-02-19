@@ -157,7 +157,7 @@ deploy_update.bat --check-only
 
 ### 5.2 PowerShell
 ```powershell
-./deploy.ps1
+.\deploy_update.bat
 ```
 
 Deploy scripts behavior:

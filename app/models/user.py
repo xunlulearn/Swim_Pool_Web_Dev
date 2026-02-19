@@ -17,7 +17,7 @@ class User(UserMixin, TimestampMixin, db.Model):
     is_verified = db.Column(db.Boolean, default=False)
     avatar_url = db.Column(db.String(255))
     
-    # 角色与封禁 (product2.4.md)
+    # 角色与封禁 (product_docs/product_social_network.md)
     role = db.Column(db.String(20), default='user')  # 'user' | 'admin'
     is_banned = db.Column(db.Boolean, default=False)
     

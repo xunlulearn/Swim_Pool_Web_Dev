@@ -315,14 +315,14 @@ A: Runtime model names are controlled by environment variables: `OPENAI_CHAT_MOD
 - `README.md`
 - `FileSpec.md`
 - `CHATBOT_DEPLOY.md`
-- `product1.md`
-- `product2.1.md`
-- `product2.2.md`
-- `product2.3.md`
-- `product2.4.md`
-- `product2.5.md`
-- `product3.md`
-- `product4.md`
+- `product_docs/product_overview.md`
+- `product_docs/product_realtime_weather_status_engine.md`
+- `product_docs/product_community_live_status.md`
+- `product_docs/product_identity_access_management.md`
+- `product_docs/product_social_network.md`
+- `product_docs/product_pool_operating_hours.md`
+- `product_docs/product_ui_ux_requirements.md`
+- `product_docs/product_chatbot.md`
 - `knowledge_base/README.md`
 - `knowledge_base/faq.md`
 

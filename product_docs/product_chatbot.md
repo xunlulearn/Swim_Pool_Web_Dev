@@ -1,4 +1,4 @@
-# Product 4 Spec: NTUPOOL Chatbot (Intent-Routed RAG)
+ï»¿# Product 4 Spec: NTUPOOL Chatbot (Intent-Routed RAG)
 
 Version: v2.4
 Date: 2026-02-17
@@ -36,7 +36,7 @@ Deliver a production-usable chatbot on `ntupool.org` that:
   - 5-star feedback widget rendering and submit (`/api/chat/feedback`)
 
 ### 2.3 Deployment and Docs
-- `deploy_update.bat` and `deploy.ps1` include chatbot env checks/injection.
+- `deploy_update.bat` includes chatbot env checks/injection.
 - `requirements.txt` and `.env.example` include chatbot dependencies/config.
 - `CHATBOT_DEPLOY.md` updated as deployment runbook.
 
@@ -198,7 +198,7 @@ If `SupabaseVectorStore` methods fail due SDK version mismatch, fallback to dire
 - Logged-in user can submit question and render reply.
 - Source links are displayed when retrieval includes source metadata.
 - Unknown/low-confidence case returns polite fallback instead of hallucination.
-- `hi`/`hello`/`ÄãºÃ` should return direct chat response without source links.
+- `hi`/`hello`/`ï¿½ï¿½ï¿½` should return direct chat response without source links.
 - Chinese input should receive Chinese reply; English input should receive English reply.
 - At message count 5/10/15..., 5-star feedback UI appears and rating can be saved once.
 

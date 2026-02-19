@@ -36,8 +36,7 @@ node_modules/
 
 # IDEs
 .idea/
-.vscode/*
-!.vscode/settings.json
+.vscode/
 *.swp
 #reset_cloud_db.py
 

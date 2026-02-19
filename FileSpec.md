@@ -34,7 +34,7 @@ Purpose: Fast navigation for feature work and bug fixes. Keep this file short an
 - Local docs source: `knowledge_base/`
 
 ## 4. Deploy and Runtime Constraints
-- Deploy scripts: `deploy.ps1`, `deploy_update.bat`
+- Deploy script: `deploy_update.bat`
 - Deploy scripts require local `.venv` precheck via `scripts/venv_doctor.py --require-deploy-tools`.
 - Required env (typical):
   - `DATABASE_URL`

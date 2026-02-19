@@ -9,7 +9,7 @@
 The system determines the pool status based on the following **Priority Order** (Top to Bottom). The first condition met determines the status.
 
 ### 1. Operating Hours Check (Highest Priority)
-* **Rule**: Check against Operating Hours defined in `product2.5.md`.
+* **Rule**: Check against Operating Hours defined in `product_pool_operating_hours.md`.
 * **Condition**: If current time is outside operating hours.
 * **Status**: **CLOSED** (Message: "Pool Closed - Outside Operating Hours").
 * **Validity**: Instant.
