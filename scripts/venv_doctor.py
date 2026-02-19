@@ -26,6 +26,7 @@ VENV_BIN_DIR = VENV_DIR / ("Scripts" if os.name == "nt" else "bin")
 REQUIREMENTS_PATH = PROJECT_ROOT / "requirements.txt"
 DOTENV_PATH = PROJECT_ROOT / ".env"
 MIN_PYTHON = (3, 12)
+MARKDOWN_SKIP_PARTS = {".git", ".venv", "node_modules", ".playwright-cli"}
 
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -143,6 +144,18 @@ def read_required_distributions(path: Path) -> list[str]:
         if name:
             names.append(name)
     return sorted(set(names))
+
+
+def find_non_utf8_markdown(root: Path) -> list[str]:
+    bad_files: list[str] = []
+    for path in root.rglob("*.md"):
+        if any(part in MARKDOWN_SKIP_PARTS for part in path.parts):
+            continue
+        try:
+            path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            bad_files.append(str(path))
+    return bad_files
 
 
 def tool_is_usable(tool_name: str, tool_path: Path) -> bool:
@@ -281,6 +294,14 @@ def main() -> int:
     else:
         oks.append(f"Import checks passed ({len(IMPORT_CHECKS)} modules)")
 
+    non_utf8_markdown = find_non_utf8_markdown(PROJECT_ROOT)
+    if non_utf8_markdown:
+        failures.append(
+            "Markdown files must be UTF-8 encoded: " + ", ".join(non_utf8_markdown)
+        )
+    else:
+        oks.append("Markdown encoding check passed (UTF-8)")
+
     dotenv_map = load_dotenv_map()
     for key in RUNTIME_ENV_KEYS:
         present, source = env_status(key, dotenv_map)
@@ -293,13 +314,13 @@ def main() -> int:
 
     required_tools = ["git"]
     if args.require_release_tools:
-        required_tools.extend(["gh", "bash"])
+        required_tools.append("gh")
     if args.require_deploy_tools:
         required_tools.append("gcloud")
 
     optional_tools = []
     if not args.require_release_tools:
-        optional_tools.extend(["gh", "bash"])
+        optional_tools.append("gh")
     if not args.require_deploy_tools:
         optional_tools.extend(["gcloud"])
 

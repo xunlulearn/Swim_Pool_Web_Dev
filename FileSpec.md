@@ -1,6 +1,6 @@
 # NTU Pool Web FileSpec
 
-Last Updated: 2026-02-18
+Last Updated: 2026-02-20
 Purpose: Fast navigation for feature work and bug fixes. Keep this file short and action-oriented.
 
 ## 1. Start Here
@@ -9,6 +9,7 @@ Purpose: Fast navigation for feature work and bug fixes. Keep this file short an
 - Shared layout: `app/templates/base.html`
 - Chatbot frontend: `app/static/js/chatbot.js`
 - Maintenance entrypoint (Windows): `dev.bat`
+- Safe git commit/push entrypoint: `dev.bat git-push "type(scope): description"`
 - Environment doctor: `scripts/venv_doctor.py`
 
 ## 2. Feature-to-File Routing

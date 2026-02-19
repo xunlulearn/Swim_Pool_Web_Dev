@@ -178,6 +178,11 @@ Common commands:
 - `dev.bat reset-db`
 - `dev.bat sync --debug-query "泳池什么时候开放"`
 - `dev.bat sync --full-rebuild`
+- `dev.bat git-push "chore(repo): your message"`
+
+PowerShell 5.1 compatibility:
+- Avoid chaining with `&&` in this repo's Windows shell context.
+- Use separate lines, `;`, or use `dev.bat` wrappers.
 
 ## Contribution
 

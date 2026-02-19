@@ -18,6 +18,7 @@ if /i "%COMMAND%"=="run" goto :run
 if /i "%COMMAND%"=="run-server" goto :run_server
 if /i "%COMMAND%"=="test" goto :test
 if /i "%COMMAND%"=="sync" goto :sync
+if /i "%COMMAND%"=="git-push" goto :git_push
 if /i "%COMMAND%"=="ingest" goto :ingest
 if /i "%COMMAND%"=="init-db" goto :init_db
 if /i "%COMMAND%"=="reset-db" goto :reset_db
@@ -66,6 +67,10 @@ goto :end
 "%PYTHON_BIN%" sync_knowledge_base.py %ARGS%
 goto :end
 
+:git_push
+"%PYTHON_BIN%" scripts\smart_commit.py %ARGS%
+goto :end
+
 :ingest
 "%PYTHON_BIN%" ingest.py %ARGS%
 goto :end
@@ -100,6 +105,7 @@ echo   run [flask args]         Run Flask dev server with .venv
 echo   run-server [args]        Run run_server.py with .venv
 echo   test [pytest args]       Run tests with .venv
 echo   sync [sync args]         Run sync_knowledge_base.py with .venv
+echo   git-push [message]       Safe stage/commit/push (no bash required)
 echo   ingest [args]            Run ingest.py with .venv
 echo   init-db                  Run init_db.py with .venv
 echo   reset-db                 Run reset_db.py with .venv
