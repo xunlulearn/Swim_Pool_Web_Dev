@@ -13,6 +13,62 @@
     const hintDismissBtn = document.getElementById("chatbot-hint-dismiss");
     const hintNeverCheckbox = document.getElementById("chatbot-hint-never");
 
+    const UI_TEXT = {
+        en: {
+            send: "Send",
+            sending: "Sending...",
+            assistantThinking: "Assistant is thinking",
+            assistantTyping: "Assistant is typing",
+            done: "Done.",
+            loginRequired: "Please log in to chat with NTU Pool Assistant.",
+            chatUnavailable: "Chat composer is unavailable.",
+            enterQuestion: "Please enter a question.",
+            missingCsrf: "Missing CSRF token. Please refresh the page.",
+            streamUnavailable: "Streaming is unavailable. Please try again.",
+            noReply: "No reply returned.",
+            requestFailed: "Request failed. Please try again.",
+            streamingFailed: "Streaming request failed.",
+            quickQuestionsTitle: "You can try asking me:",
+            thinkingLabel: "Thinking",
+            feedbackPrompt:
+                "Please rate this answer to help me improve future responses.",
+            feedbackPlaceholder: "Share your feedback (optional)",
+            feedbackTapToRate: "Tap a star to submit your rating.",
+            feedbackSubmitting: "Submitting rating...",
+            feedbackThanks: "Thanks for your feedback!",
+            feedbackFailed: "Unable to submit rating. Please try again.",
+        },
+        zh: {
+            send: "\u53d1\u9001",
+            sending: "\u53d1\u9001\u4e2d...",
+            assistantThinking: "\u52a9\u624b\u6b63\u5728\u601d\u8003",
+            assistantTyping: "\u52a9\u624b\u6b63\u5728\u8f93\u51fa",
+            done: "\u5df2\u5b8c\u6210\u3002",
+            loginRequired:
+                "\u8bf7\u5148\u767b\u5f55\u540e\u518d\u4f7f\u7528 NTU Pool Assistant\u3002",
+            chatUnavailable: "\u804a\u5929\u8f93\u5165\u6846\u6682\u4e0d\u53ef\u7528\u3002",
+            enterQuestion: "\u8bf7\u8f93\u5165\u4f60\u7684\u95ee\u9898\u3002",
+            missingCsrf: "\u7f3a\u5c11 CSRF token\uff0c\u8bf7\u5237\u65b0\u9875\u9762\u540e\u91cd\u8bd5\u3002",
+            streamUnavailable: "\u6d41\u5f0f\u8f93\u51fa\u4e0d\u53ef\u7528\uff0c\u8bf7\u91cd\u8bd5\u3002",
+            noReply: "\u6682\u672a\u8fd4\u56de\u56de\u7b54\u3002",
+            requestFailed: "\u8bf7\u6c42\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002",
+            streamingFailed: "\u6d41\u5f0f\u8bf7\u6c42\u5931\u8d25\u3002",
+            quickQuestionsTitle: "\u4f60\u53ef\u4ee5\u8bd5\u7740\u95ee\u6211\uff1a",
+            thinkingLabel: "\u601d\u8003\u4e2d",
+            feedbackPrompt:
+                "\u8bf7\u5bf9\u6211\u8fdb\u884c\u6ee1\u610f\u5ea6\u8bc4\u5206\uff0c\u5e2e\u52a9\u6211\u4ee5\u540e\u56de\u7b54\u5f97\u66f4\u597d\u3002",
+            feedbackPlaceholder: "\u6b22\u8fce\u8f93\u5165\u53cd\u9988\u610f\u89c1\uff08\u9009\u586b\uff09",
+            feedbackTapToRate: "\u70b9\u51fb\u661f\u661f\u5373\u53ef\u63d0\u4ea4\u8bc4\u5206\u3002",
+            feedbackSubmitting: "\u6b63\u5728\u63d0\u4ea4\u8bc4\u5206...",
+            feedbackThanks: "\u611f\u8c22\u53cd\u9988\uff01",
+            feedbackFailed: "\u63d0\u4ea4\u8bc4\u5206\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002",
+        },
+    };
+    const CJK_CHAR_RE = /[\u3400-\u9fff]/;
+    const LATIN_CHAR_RE = /[a-z]/i;
+    const prefersReducedMotion =
+        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches || false;
+
     if (!launcher || !panel || !closeBtn || !backdrop || !thread || !statusEl) {
         return;
     }
@@ -20,7 +76,50 @@
     const isAuthenticated = panel.dataset.authenticated === "true";
     const userKey = (panel.dataset.userKey || (isAuthenticated ? "user" : "guest")).trim();
     const hintStorageKey = `chatbot_hint_hidden_${userKey || "guest"}`;
+    const normalizeLocale = (value) =>
+        String(value || "")
+            .trim()
+            .toLowerCase()
+            .startsWith("zh")
+            ? "zh"
+            : "en";
+    let activeLocale = normalizeLocale(panel.dataset.locale || document.documentElement.lang || "en");
+    const getUiText = (key, locale = activeLocale) =>
+        UI_TEXT[normalizeLocale(locale)]?.[key] || UI_TEXT.en[key] || "";
+    const detectLocaleFromText = (text, fallbackLocale = activeLocale) => {
+        const normalized = String(text || "").trim();
+        if (!normalized) {
+            return normalizeLocale(fallbackLocale);
+        }
+        if (CJK_CHAR_RE.test(normalized)) {
+            return "zh";
+        }
+        if (LATIN_CHAR_RE.test(normalized)) {
+            return "en";
+        }
+        return normalizeLocale(fallbackLocale);
+    };
+    const detectLocaleFromQuickQuestions = (quickQuestions, fallbackLocale = activeLocale) => {
+        if (!Array.isArray(quickQuestions)) {
+            return normalizeLocale(fallbackLocale);
+        }
+        for (const item of quickQuestions) {
+            if (typeof item !== "string") {
+                continue;
+            }
+            const text = item.trim();
+            if (!text) {
+                continue;
+            }
+            return detectLocaleFromText(text, fallbackLocale);
+        }
+        return normalizeLocale(fallbackLocale);
+    };
+
     let hintDismissedForSession = false;
+    let statusAnimationTimer = null;
+    let statusAnimationFrame = 0;
+    let clearDoneTimer = null;
 
     const getCsrfToken = () => {
         const meta = document.querySelector('meta[name="csrf-token"]');
@@ -41,6 +140,49 @@
         } catch (_error) {
             // Ignore storage failures (private mode / blocked storage).
         }
+    };
+
+    const stopStatusAnimation = () => {
+        if (statusAnimationTimer) {
+            window.clearInterval(statusAnimationTimer);
+            statusAnimationTimer = null;
+        }
+    };
+
+    const startStatusAnimation = (textKey, locale = activeLocale) => {
+        const baseText = getUiText(textKey, locale);
+        if (!baseText) {
+            return;
+        }
+        if (clearDoneTimer) {
+            window.clearTimeout(clearDoneTimer);
+            clearDoneTimer = null;
+        }
+        stopStatusAnimation();
+        if (prefersReducedMotion) {
+            statusEl.textContent = `${baseText}...`;
+            return;
+        }
+        const frames = [baseText, `${baseText}.`, `${baseText}..`, `${baseText}...`];
+        statusAnimationFrame = 0;
+        statusEl.textContent = frames[0];
+        statusAnimationTimer = window.setInterval(() => {
+            statusAnimationFrame = (statusAnimationFrame + 1) % frames.length;
+            statusEl.textContent = frames[statusAnimationFrame];
+        }, 360);
+    };
+
+    const setDoneStatus = (locale = activeLocale) => {
+        stopStatusAnimation();
+        statusEl.textContent = getUiText("done", locale);
+        if (clearDoneTimer) {
+            window.clearTimeout(clearDoneTimer);
+        }
+        clearDoneTimer = window.setTimeout(() => {
+            if (!sendBtn || !sendBtn.disabled) {
+                statusEl.textContent = "";
+            }
+        }, 1400);
     };
 
     const hideHint = () => {
@@ -145,10 +287,12 @@
         starButtons,
         helperText,
         commentInput,
+        locale = activeLocale,
     }) => {
+        const uiLocale = normalizeLocale(locale);
         const csrfToken = getCsrfToken();
         if (!csrfToken) {
-            helperText.textContent = "Missing CSRF token. Please refresh the page.";
+            helperText.textContent = getUiText("missingCsrf", uiLocale);
             return;
         }
 
@@ -158,7 +302,7 @@
         if (commentInput) {
             commentInput.disabled = true;
         }
-        helperText.textContent = "\u6b63\u5728\u63d0\u4ea4\u8bc4\u5206...";
+        helperText.textContent = getUiText("feedbackSubmitting", uiLocale);
 
         try {
             const response = await fetch("/api/chat/feedback", {
@@ -181,11 +325,10 @@
 
             setStarVisualState(starButtons, rating);
             helperText.className = "mt-1 text-[11px] text-green-700";
-            helperText.textContent =
-                "\u611f\u8c22\u53cd\u9988\uff01\u795d\u60a8\u5728NTU\u7684\u6cf3\u6c60\u73a9\u5f97\u5f00\u5fc3\u3002";
+            helperText.textContent = getUiText("feedbackThanks", uiLocale);
         } catch (error) {
             helperText.className = "mt-1 text-[11px] text-red-600";
-            helperText.textContent = error?.message || "Unable to submit rating. Please try again.";
+            helperText.textContent = error?.message || getUiText("feedbackFailed", uiLocale);
             starButtons.forEach((button) => {
                 button.disabled = false;
             });
@@ -195,25 +338,24 @@
         }
     };
 
-    const appendFeedbackWidget = ({ bubble, conversationId, promptText }) => {
+    const appendFeedbackWidget = ({ bubble, conversationId, promptText, locale = activeLocale }) => {
         if (!conversationId) {
             return;
         }
+        const uiLocale = normalizeLocale(locale);
 
         const feedbackWrap = document.createElement("div");
         feedbackWrap.className = "mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2";
 
         const title = document.createElement("p");
         title.className = "text-xs font-semibold text-amber-900";
-        title.textContent =
-            promptText ||
-            "\u8bf7\u60a8\u5bf9\u6211\u8fdb\u884c\u6ee1\u610f\u5ea6\u8bc4\u5206\uff0c\u5e2e\u52a9\u6211\u4ee5\u540e\u53d8\u5f97\u66f4\u52a0\u806a\u660e\u3002";
+        title.textContent = promptText || getUiText("feedbackPrompt", uiLocale);
         feedbackWrap.appendChild(title);
 
         const commentInput = document.createElement("textarea");
         commentInput.rows = 2;
         commentInput.maxLength = 500;
-        commentInput.placeholder = "\u6b22\u8fce\u8f93\u5165\u53cd\u9988\u610f\u89c1\uff08\u9009\u586b\uff09";
+        commentInput.placeholder = getUiText("feedbackPlaceholder", uiLocale);
         commentInput.className =
             "mt-2 w-full resize-none rounded-lg border border-amber-200 bg-white px-2 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-300";
         feedbackWrap.appendChild(commentInput);
@@ -237,7 +379,7 @@
 
         const helperText = document.createElement("p");
         helperText.className = "mt-1 text-[11px] text-amber-700";
-        helperText.textContent = "\u70b9\u51fb\u661f\u661f\u5373\u53ef\u63d0\u4ea4\u8bc4\u5206\u3002";
+        helperText.textContent = getUiText("feedbackTapToRate", uiLocale);
 
         const restoreSelectedVisualState = () => {
             setStarVisualState(starButtons, selectedRating);
@@ -270,6 +412,7 @@
                     starButtons,
                     helperText,
                     commentInput,
+                    locale: uiLocale,
                 });
             });
         });
@@ -279,10 +422,11 @@
         bubble.appendChild(feedbackWrap);
     };
 
-    const appendQuickQuestions = ({ bubble, quickQuestions }) => {
+    const appendQuickQuestions = ({ bubble, quickQuestions, locale = activeLocale }) => {
         if (!Array.isArray(quickQuestions) || quickQuestions.length === 0) {
             return;
         }
+        const uiLocale = normalizeLocale(locale);
 
         const wrap = document.createElement("div");
         wrap.className = "mt-3 border-t border-slate-200/80 pt-2.5";
@@ -290,7 +434,7 @@
 
         const title = document.createElement("p");
         title.className = "mb-2 text-[11px] font-semibold text-slate-500";
-        title.textContent = "\u4f60\u53ef\u4ee5\u7ee7\u7eed\u95ee\uff1a";
+        title.textContent = getUiText("quickQuestionsTitle", uiLocale);
         wrap.appendChild(title);
 
         const list = document.createElement("div");
@@ -332,7 +476,7 @@
             .forEach((node) => node.remove());
     };
 
-    const appendMessage = ({ role, text, feedback = null, quickQuestions = [] }) => {
+    const appendMessage = ({ role, text, feedback = null, quickQuestions = [], locale = activeLocale }) => {
         const isUser = role === "user";
 
         const wrapper = document.createElement("div");
@@ -358,6 +502,7 @@
                 bubble,
                 conversationId: feedback.conversationId,
                 promptText: feedback.prompt,
+                locale,
             });
         }
 
@@ -365,6 +510,7 @@
             appendQuickQuestions({
                 bubble,
                 quickQuestions,
+                locale,
             });
         }
 
@@ -374,12 +520,28 @@
         return { wrapper, bubble, textNode };
     };
 
-    const appendAssistantDraft = () => {
+    const renderAssistantThinkingDraft = (locale = activeLocale) => {
+        const label = escapeHtml(getUiText("thinkingLabel", locale));
+        const animatedClass = prefersReducedMotion ? "" : " animate-bounce motion-reduce:animate-none";
+        return (
+            '<div class="mb-0 inline-flex items-center gap-2 text-slate-400">' +
+            `<span class="text-xs font-medium">${label}</span>` +
+            '<span class="inline-flex items-center gap-1" aria-hidden="true">' +
+            `<span class="h-1.5 w-1.5 rounded-full bg-slate-400${animatedClass}" style="animation-delay:0ms"></span>` +
+            `<span class="h-1.5 w-1.5 rounded-full bg-slate-400${animatedClass}" style="animation-delay:120ms"></span>` +
+            `<span class="h-1.5 w-1.5 rounded-full bg-slate-400${animatedClass}" style="animation-delay:240ms"></span>` +
+            "</span>" +
+            "</div>"
+        );
+    };
+
+    const appendAssistantDraft = (locale = activeLocale) => {
         const { wrapper, bubble, textNode } = appendMessage({
             role: "assistant",
             text: "",
+            locale,
         });
-        textNode.innerHTML = '<p class="mb-0 text-slate-400">...</p>';
+        textNode.innerHTML = renderAssistantThinkingDraft(locale);
         return { wrapper, bubble, textNode };
     };
 
@@ -397,29 +559,34 @@
         }
         sendBtn.disabled = isLoading;
         input.disabled = isLoading;
-        sendBtn.textContent = isLoading ? "Sending..." : "Send";
-        statusEl.textContent = isLoading ? "Assistant is thinking..." : "";
+        sendBtn.textContent = isLoading ? getUiText("sending") : getUiText("send");
+        if (isLoading) {
+            startStatusAnimation("assistantThinking");
+            return;
+        }
+        stopStatusAnimation();
     };
 
     const ask = async () => {
         if (!isAuthenticated) {
-            statusEl.textContent = "Please log in to chat with NTU Pool Assistant.";
+            statusEl.textContent = getUiText("loginRequired");
             return;
         }
         if (!input || !sendBtn) {
-            statusEl.textContent = "Chat composer is unavailable.";
+            statusEl.textContent = getUiText("chatUnavailable");
             return;
         }
 
         const message = input.value.trim();
         if (!message) {
-            statusEl.textContent = "Please enter a question.";
+            statusEl.textContent = getUiText("enterQuestion");
             return;
         }
+        activeLocale = detectLocaleFromText(message, activeLocale);
 
         const csrfToken = getCsrfToken();
         if (!csrfToken) {
-            statusEl.textContent = "Missing CSRF token. Please refresh the page.";
+            statusEl.textContent = getUiText("missingCsrf");
             return;
         }
 
@@ -428,7 +595,7 @@
         appendMessage({ role: "user", text: message });
         input.value = "";
         setLoading(true);
-        const assistantDraft = appendAssistantDraft();
+        const assistantDraft = appendAssistantDraft(activeLocale);
 
         try {
             const response = await fetch("/api/chat/stream", {
@@ -444,12 +611,14 @@
                 const data = await response.json().catch(() => ({}));
                 const errorMsg = data?.error || `Request failed (${response.status})`;
                 updateAssistantDraft(assistantDraft, errorMsg);
+                stopStatusAnimation();
                 statusEl.textContent = "";
                 return;
             }
 
             if (!response.body) {
-                updateAssistantDraft(assistantDraft, "Streaming is unavailable. Please try again.");
+                updateAssistantDraft(assistantDraft, getUiText("streamUnavailable"));
+                stopStatusAnimation();
                 statusEl.textContent = "";
                 return;
             }
@@ -459,7 +628,9 @@
             let buffer = "";
             let replyText = "";
             let finalPayload = null;
-            statusEl.textContent = "Assistant is typing...";
+            let streamLocale = activeLocale;
+            let sawFirstDelta = false;
+            startStatusAnimation("assistantThinking", streamLocale);
 
             const processLine = (line) => {
                 if (!line) {
@@ -474,8 +645,25 @@
                 if (!payload || typeof payload !== "object") {
                     return;
                 }
+                if (payload.type === "status") {
+                    const stage = String(payload.stage || "").toLowerCase();
+                    if (stage === "typing") {
+                        startStatusAnimation("assistantTyping", streamLocale);
+                    } else {
+                        startStatusAnimation("assistantThinking", streamLocale);
+                    }
+                    return;
+                }
+                if (payload.type === "heartbeat") {
+                    return;
+                }
                 if (payload.type === "delta" && typeof payload.delta === "string") {
+                    if (!sawFirstDelta) {
+                        sawFirstDelta = true;
+                        startStatusAnimation("assistantTyping", streamLocale);
+                    }
                     replyText += payload.delta;
+                    streamLocale = detectLocaleFromText(replyText, streamLocale);
                     updateAssistantDraft(assistantDraft, replyText);
                     return;
                 }
@@ -483,12 +671,13 @@
                     finalPayload = payload;
                     if (typeof payload.reply === "string" && payload.reply.trim()) {
                         replyText = payload.reply.trim();
+                        streamLocale = detectLocaleFromText(replyText, streamLocale);
                         updateAssistantDraft(assistantDraft, replyText);
                     }
                     return;
                 }
                 if (payload.type === "error") {
-                    throw new Error(payload.error || "Streaming request failed.");
+                    throw new Error(payload.error || getUiText("streamingFailed", streamLocale));
                 }
             };
 
@@ -514,7 +703,7 @@
                 processLine(trailing);
             }
 
-            const finalReply = (replyText || "").trim() || "No reply returned.";
+            const finalReply = (replyText || "").trim() || getUiText("noReply", streamLocale);
             updateAssistantDraft(assistantDraft, finalReply);
 
             const feedbackRequired = Boolean(finalPayload?.feedback_required);
@@ -525,21 +714,32 @@
             const quickQuestions = Array.isArray(finalPayload?.quick_questions)
                 ? finalPayload.quick_questions
                 : [];
+            streamLocale = detectLocaleFromQuickQuestions(
+                quickQuestions,
+                detectLocaleFromText(finalReply, streamLocale)
+            );
+            activeLocale = streamLocale;
 
             if (feedbackRequired) {
                 appendFeedbackWidget({
                     bubble: assistantDraft.bubble,
                     conversationId,
                     promptText: feedbackPrompt,
+                    locale: streamLocale,
                 });
             }
             appendQuickQuestions({
                 bubble: assistantDraft.bubble,
                 quickQuestions,
+                locale: streamLocale,
             });
-            statusEl.textContent = "Done.";
-        } catch (_error) {
-            updateAssistantDraft(assistantDraft, "Request failed. Please try again.");
+            setDoneStatus(streamLocale);
+        } catch (error) {
+            updateAssistantDraft(
+                assistantDraft,
+                error?.message || getUiText("requestFailed", activeLocale)
+            );
+            stopStatusAnimation();
             statusEl.textContent = "";
         } finally {
             setLoading(false);
@@ -553,7 +753,7 @@
         if (panel.classList.contains("hidden")) {
             openPanel();
             if (!isAuthenticated) {
-                statusEl.textContent = "Please log in to chat with NTU Pool Assistant.";
+                statusEl.textContent = getUiText("loginRequired");
             }
         } else {
             closePanel();

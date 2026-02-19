@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from functools import lru_cache
 import json
 import re
+import time
 from uuid import UUID
 
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
@@ -343,14 +344,21 @@ def chat_stream():
         error_text, status_code = validation_error
         return jsonify({"error": error_text}), status_code
 
-    response_payload, error = _build_chat_response_payload(message)
-    if error is not None:
-        error_text, status_code = error
-        return jsonify({"error": error_text}), status_code
-
     def generate_stream():
+        # Emit a first frame immediately so the client can show active progress.
+        yield _stream_event({"type": "status", "stage": "thinking"})
+
+        response_payload, error = _build_chat_response_payload(message)
+        if error is not None:
+            error_text, status_code = error
+            yield _stream_event({"type": "error", "error": error_text, "status_code": status_code})
+            return
+
+        yield _stream_event({"type": "status", "stage": "typing"})
         for chunk in _iter_reply_chunks(response_payload.get("reply", "")):
             yield _stream_event({"type": "delta", "delta": chunk})
+            # Keep chunks visibly progressive for the user instead of bursting all at once.
+            time.sleep(0.018)
 
         final_payload = dict(response_payload)
         final_payload["type"] = "final"
@@ -359,7 +367,11 @@ def chat_stream():
     return Response(
         stream_with_context(generate_stream()),
         mimetype="application/x-ndjson",
-        headers={"Cache-Control": "no-cache, no-transform"},
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            # Prevent reverse proxies from buffering stream chunks.
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

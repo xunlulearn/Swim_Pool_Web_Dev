@@ -196,6 +196,7 @@
         data-authenticated="{{ 'true' if current_user.is_authenticated else 'false' }}"
         data-login-url="{{ url_for('auth.login') }}"
         data-user-key="{{ ('user-' ~ current_user.id) if current_user.is_authenticated else 'guest' }}"
+        data-locale="{{ request.accept_languages.best_match(['zh', 'en']) or 'en' }}"
     >
         <div class="rounded-t-2xl bg-gradient-to-r from-slate-900 via-slate-800 to-blue-900 px-4 py-3 text-white">
             <div class="flex items-start justify-between gap-3">
@@ -269,7 +270,7 @@
     </section>
 
     {% block scripts %}{% endblock %}
-    <script src="{{ url_for('static', filename='js/chatbot.js', v='20260218-5') }}"></script>
+    <script src="{{ url_for('static', filename='js/chatbot.js', v='20260219-1') }}"></script>
     <script>
         document.addEventListener("DOMContentLoaded", () => {
             const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");

@@ -136,6 +136,7 @@ def test_chat_stream_success_returns_deltas_and_final_payload(auth_client, mocke
     ]
 
     assert response.status_code == 200
+    assert any(item.get("type") == "status" for item in payload_lines)
     assert any(item.get("type") == "delta" for item in payload_lines)
     final_item = payload_lines[-1]
     assert final_item["type"] == "final"
