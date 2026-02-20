@@ -2,6 +2,7 @@ import json
 import logging
 import math
 import os
+import copy
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from threading import Lock
@@ -50,9 +51,11 @@ class WeatherEngine:
     LIGHTNING_CLOSE_THRESHOLD = 8.0
     LIGHTNING_WARN_THRESHOLD = 15.0
     RAINFALL_WARN_THRESHOLD = 5.0
+    SGT = timezone(timedelta(hours=8))
 
     # NEA APIs.
-    LIGHTNING_API_URL = "https://api-open.data.gov.sg/v2/real-time/api/weather?api=lightning"
+    LIGHTNING_API_BASE_URL = "https://api-open.data.gov.sg/v2/real-time/api/weather"
+    LIGHTNING_API_URL = f"{LIGHTNING_API_BASE_URL}?api=lightning"
     RAINFALL_API_URL = "https://api-open.data.gov.sg/v2/real-time/api/rainfall"
 
     def __init__(self):
@@ -64,6 +67,10 @@ class WeatherEngine:
         self._status_cache_at = None
         self._status_cache_lock = Lock()
         self._status_refresh_lock = Lock()
+        self._lightning_history_cache = None
+        self._lightning_history_cache_at = None
+        self._lightning_history_cache_lock = Lock()
+        self._lightning_history_refresh_lock = Lock()
 
         # 2026 Singapore public holidays (YYYY-MM-DD).
         self.PUBLIC_HOLIDAYS_2026 = {
@@ -116,6 +123,55 @@ class WeatherEngine:
             state, message, details = self._status_cache
             return state, message, dict(details)
 
+    def _get_lightning_history_cache_ttl_seconds(self):
+        if has_app_context():
+            return int(current_app.config.get('LIGHTNING_HISTORY_CACHE_SECONDS', 180))
+        return 180
+
+    def _get_lightning_history_max_pages(self):
+        default_pages = 40
+        if has_app_context() and not current_app.config.get('NEA_API_KEY'):
+            # Without API key, the public quota throttles quickly.
+            default_pages = 5
+
+        if has_app_context():
+            raw_value = current_app.config.get('LIGHTNING_HISTORY_MAX_PAGES', default_pages)
+            try:
+                parsed_value = int(raw_value)
+            except (TypeError, ValueError):
+                return default_pages
+            if parsed_value <= 0:
+                return default_pages
+            return parsed_value
+
+        return default_pages
+
+    def _get_cached_lightning_history(self):
+        ttl_seconds = self._get_lightning_history_cache_ttl_seconds()
+        if ttl_seconds <= 0:
+            return None
+
+        with self._lightning_history_cache_lock:
+            if self._lightning_history_cache is None or self._lightning_history_cache_at is None:
+                return None
+
+            age = (datetime.now(timezone.utc) - self._lightning_history_cache_at).total_seconds()
+            if age > ttl_seconds:
+                return None
+
+            return copy.deepcopy(self._lightning_history_cache)
+
+    def _set_cached_lightning_history(self, payload):
+        with self._lightning_history_cache_lock:
+            self._lightning_history_cache = copy.deepcopy(payload)
+            self._lightning_history_cache_at = datetime.now(timezone.utc)
+
+    def _get_stale_cached_lightning_history(self):
+        with self._lightning_history_cache_lock:
+            if self._lightning_history_cache is None:
+                return None
+            return copy.deepcopy(self._lightning_history_cache)
+
     @staticmethod
     def _build_degraded_details(reason):
         return {
@@ -131,6 +187,9 @@ class WeatherEngine:
         """Allow sample weather data only in DEBUG/TESTING mode."""
         if not has_app_context():
             return False
+
+        if bool(current_app.config.get('FORCE_SAMPLE_WEATHER_DATA', False)):
+            return True
 
         enabled = bool(current_app.config.get('USE_SAMPLE_WEATHER_DATA', False))
         if not enabled:
@@ -372,6 +431,375 @@ class WeatherEngine:
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
         return earth_radius_km * c
+
+    @staticmethod
+    def _parse_nea_datetime(value):
+        if not value:
+            return None
+
+        try:
+            parsed = datetime.fromisoformat(str(value))
+        except (TypeError, ValueError):
+            return None
+
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=WeatherEngine.SGT)
+        return parsed.astimezone(WeatherEngine.SGT)
+
+    @staticmethod
+    def _extract_oldest_record_time(records):
+        oldest = None
+        for record in records:
+            record_time = WeatherEngine._parse_nea_datetime(record.get('datetime'))
+            if record_time is None:
+                continue
+            if oldest is None or record_time < oldest:
+                oldest = record_time
+        return oldest
+
+    @staticmethod
+    def _format_lightning_history_warning(error_code, truncated, rate_limited):
+        if error_code == 'rate_limited' or rate_limited:
+            return "Lightning history is partially loaded due to NEA API rate limits."
+        if error_code == 'max_pages_reached' or truncated:
+            return "Lightning history is partially loaded due to page fetch limits."
+        if error_code == 'timeout':
+            return "Lightning history request timed out; data may be incomplete."
+        if error_code == 'network_error':
+            return "Lightning history request failed due to network error."
+        if error_code == 'invalid_response':
+            return "Lightning history source returned an invalid response."
+        if error_code == 'api_error_payload':
+            return "Lightning history source returned an API error."
+        if error_code == 'missing_or_invalid_api_key':
+            return "Lightning history requires a valid NEA API key for extended paging."
+        if error_code and error_code.startswith('http_'):
+            return f"Lightning history request failed ({error_code})."
+        return None
+
+    def _fetch_lightning_records_for_history(self, now_sgt, cutoff_sgt):
+        use_sample_data = self._use_sample_data()
+        if use_sample_data:
+            with open(SAMPLE_LIGHTNING_PATH, 'r', encoding='utf-8') as file:
+                payload = json.load(file)
+            records = payload.get('data', {}).get('records', [])
+            return records, {
+                "data_source": "sample_data",
+                "request_count": 0,
+                "truncated": False,
+                "rate_limited": False,
+                "error": None,
+                "coverage_start": self._extract_oldest_record_time(records),
+            }
+
+        api_key = current_app.config.get('NEA_API_KEY')
+        headers = {'x-api-key': api_key} if api_key else {}
+        date_filter = now_sgt.strftime("%Y-%m-%dT%H:%M:%S")
+
+        records = []
+        pagination_token = None
+        request_count = 0
+        truncated = False
+        rate_limited = False
+        error = None
+        coverage_start = None
+        max_pages = self._get_lightning_history_max_pages()
+
+        while True:
+            if request_count >= max_pages:
+                truncated = True
+                error = error or 'max_pages_reached'
+                break
+
+            params = {
+                "api": "lightning",
+                "date": date_filter,
+            }
+            if pagination_token:
+                params["paginationToken"] = pagination_token
+
+            try:
+                response = requests.get(
+                    self.LIGHTNING_API_BASE_URL,
+                    headers=headers,
+                    params=params,
+                    timeout=10,
+                )
+            except requests.exceptions.Timeout:
+                error = 'timeout'
+                break
+            except requests.exceptions.RequestException:
+                logger.exception("Lightning history request error.")
+                error = 'network_error'
+                break
+
+            request_count += 1
+
+            if response.status_code == 429:
+                rate_limited = True
+                error = 'rate_limited'
+                break
+
+            if response.status_code == 403:
+                error = 'missing_or_invalid_api_key'
+                break
+
+            if response.status_code != 200:
+                error = f'http_{response.status_code}'
+                break
+
+            try:
+                payload = response.json()
+            except ValueError:
+                error = 'invalid_response'
+                break
+
+            if payload.get('code') != 0:
+                error = 'api_error_payload'
+                break
+
+            data = payload.get('data') or {}
+            page_records = data.get('records') or []
+            if not page_records:
+                break
+
+            records.extend(page_records)
+            page_oldest = self._extract_oldest_record_time(page_records)
+            if page_oldest and (coverage_start is None or page_oldest < coverage_start):
+                coverage_start = page_oldest
+
+            if page_oldest and page_oldest <= cutoff_sgt:
+                break
+
+            pagination_token = data.get('paginationToken')
+            if not pagination_token:
+                break
+
+        return records, {
+            "data_source": "live_api",
+            "request_count": request_count,
+            "truncated": truncated,
+            "rate_limited": rate_limited,
+            "error": error,
+            "coverage_start": coverage_start,
+        }
+
+    @staticmethod
+    def _aggregate_points_to_fixed_bins(points, window_start, window_duration, target_bins):
+        bin_seconds = window_duration.total_seconds() / max(1, target_bins)
+        counts_15km = [0] * target_bins
+        counts_30km = [0] * target_bins
+
+        for point in points:
+            offset_seconds = (point["time"] - window_start).total_seconds()
+            if offset_seconds < 0:
+                continue
+            bin_index = int(offset_seconds // bin_seconds)
+            if bin_index >= target_bins:
+                bin_index = target_bins - 1
+            counts_15km[bin_index] += int(point["counts_15km"])
+            counts_30km[bin_index] += int(point["counts_30km"])
+
+        return counts_15km, counts_30km, int(bin_seconds)
+
+    def _build_lightning_history_charts(self, records, now_sgt):
+        window_specs = {
+            "20m": {
+                "duration": timedelta(minutes=20),
+                "label_format": "%H:%M",
+                "display_label": "Last 20 Minutes",
+            },
+            "1h": {
+                "duration": timedelta(hours=1),
+                "label_format": "%H:%M",
+                "display_label": "Last 1 Hour",
+            },
+            "12h": {
+                "duration": timedelta(hours=12),
+                "label_format": "%m/%d %H:%M",
+                "display_label": "Last 12 Hours",
+                "target_bins": 60,
+            },
+        }
+
+        cutoff_sgt = now_sgt - timedelta(hours=12)
+        snapshot_points = []
+        oldest_counted_point = None
+
+        for record in records:
+            record_time = self._parse_nea_datetime(record.get('datetime'))
+            if record_time is None or record_time > now_sgt or record_time < cutoff_sgt:
+                continue
+
+            readings = (record.get('item') or {}).get('readings') or []
+            count_15km = 0
+            count_30km = 0
+
+            for reading in readings:
+                location = reading.get('location') or {}
+                lat_raw = location.get('latitude')
+                lon_raw = location.get('longitude')
+                if lat_raw is None or lon_raw is None:
+                    continue
+
+                try:
+                    lat = float(lat_raw)
+                    lon = float(lon_raw)
+                except (TypeError, ValueError):
+                    continue
+
+                distance_km = self.haversine(self.SRC_LAT, self.SRC_LON, lat, lon)
+                if distance_km <= 30:
+                    count_30km += 1
+                    if distance_km <= 15:
+                        count_15km += 1
+
+            if count_30km > 0:
+                if oldest_counted_point is None or record_time < oldest_counted_point:
+                    oldest_counted_point = record_time
+
+            snapshot_points.append(
+                {
+                    "time": record_time,
+                    "counts_15km": count_15km,
+                    "counts_30km": count_30km,
+                }
+            )
+
+        snapshot_points.sort(key=lambda point: point["time"])
+
+        charts = {}
+        for window_key, spec in window_specs.items():
+            window_start = now_sgt - spec["duration"]
+            points = [
+                point for point in snapshot_points if point["time"] >= window_start
+            ]
+            if "target_bins" in spec:
+                target_bins = int(spec["target_bins"])
+                counts_15km, counts_30km, bin_seconds = self._aggregate_points_to_fixed_bins(
+                    points,
+                    window_start,
+                    spec["duration"],
+                    target_bins,
+                )
+                labels = [
+                    (window_start + timedelta(seconds=bin_seconds * (index + 1))).strftime(
+                        spec["label_format"]
+                    )
+                    for index in range(target_bins)
+                ]
+            else:
+                counts_15km = [int(point["counts_15km"]) for point in points]
+                counts_30km = [int(point["counts_30km"]) for point in points]
+                labels = [point["time"].strftime(spec["label_format"]) for point in points]
+
+            charts[window_key] = {
+                "display_label": spec["display_label"],
+                "labels": labels,
+                "counts_15km": counts_15km,
+                "counts_30km": counts_30km,
+                "totals": {
+                    "15km": int(sum(counts_15km)),
+                    "30km": int(sum(counts_30km)),
+                },
+                "snapshot_count": len(points),
+                "bar_count": len(labels),
+            }
+
+        return charts, oldest_counted_point
+
+    def get_lightning_history(self):
+        cached = self._get_cached_lightning_history()
+        if cached is not None:
+            return cached
+
+        if not self._lightning_history_refresh_lock.acquire(blocking=False):
+            stale = self._get_stale_cached_lightning_history()
+            if stale is not None:
+                stale_meta = stale.setdefault("metadata", {})
+                stale_meta["stale_cache"] = True
+                stale_meta.setdefault(
+                    "warning",
+                    "Using cached lightning history while refresh is in progress.",
+                )
+                return stale
+
+            now_sgt = datetime.now(self.SGT).replace(microsecond=0)
+            charts, _ = self._build_lightning_history_charts([], now_sgt)
+            return {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "observation_time_sgt": now_sgt.isoformat(),
+                "distance_options_km": [15, 30],
+                "window_options": ["20m", "1h", "12h"],
+                "charts": charts,
+                "metadata": {
+                    "data_source": "degraded",
+                    "requests_made": 0,
+                    "records_loaded": 0,
+                    "coverage_start_sgt": None,
+                    "coverage_end_sgt": now_sgt.isoformat(),
+                    "oldest_counted_point_sgt": None,
+                    "full_12h_coverage": False,
+                    "truncated": False,
+                    "rate_limited": False,
+                    "error": "refresh_in_progress",
+                    "warning": "Lightning history refresh is in progress.",
+                    "stale_cache": False,
+                },
+            }
+
+        try:
+            now_sgt = datetime.now(self.SGT).replace(microsecond=0)
+            cutoff_sgt = now_sgt - timedelta(hours=12)
+
+            records, fetch_meta = self._fetch_lightning_records_for_history(now_sgt, cutoff_sgt)
+            charts, oldest_counted_point = self._build_lightning_history_charts(records, now_sgt)
+
+            coverage_start = fetch_meta.get("coverage_start")
+            full_12h_coverage = bool(coverage_start and coverage_start <= cutoff_sgt)
+            warning = self._format_lightning_history_warning(
+                fetch_meta.get("error"),
+                fetch_meta.get("truncated", False),
+                fetch_meta.get("rate_limited", False),
+            )
+
+            payload = {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "observation_time_sgt": now_sgt.isoformat(),
+                "distance_options_km": [15, 30],
+                "window_options": ["20m", "1h", "12h"],
+                "charts": charts,
+                "metadata": {
+                    "data_source": fetch_meta.get("data_source", "live_api"),
+                    "requests_made": fetch_meta.get("request_count", 0),
+                    "records_loaded": len(records),
+                    "coverage_start_sgt": coverage_start.isoformat() if coverage_start else None,
+                    "coverage_end_sgt": now_sgt.isoformat(),
+                    "oldest_counted_point_sgt": (
+                        oldest_counted_point.isoformat() if oldest_counted_point else None
+                    ),
+                    "full_12h_coverage": full_12h_coverage,
+                    "truncated": bool(fetch_meta.get("truncated", False)),
+                    "rate_limited": bool(fetch_meta.get("rate_limited", False)),
+                    "error": fetch_meta.get("error"),
+                    "warning": warning,
+                    "stale_cache": False,
+                },
+            }
+
+            if payload["metadata"]["error"]:
+                stale = self._get_stale_cached_lightning_history()
+                if stale is not None:
+                    stale_meta = stale.setdefault("metadata", {})
+                    stale_meta["stale_cache"] = True
+                    stale_meta["error"] = payload["metadata"]["error"]
+                    stale_meta["warning"] = warning
+                    return stale
+
+            self._set_cached_lightning_history(payload)
+            return payload
+        finally:
+            self._lightning_history_refresh_lock.release()
 
     def get_lightning_status(self):
         """Fetch lightning points and return nearest distance + count."""

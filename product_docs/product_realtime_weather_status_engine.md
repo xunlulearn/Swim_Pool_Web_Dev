@@ -41,3 +41,15 @@ The system determines the pool status based on the following **Priority Order** 
 ## Update Frequency
 * **Weather Polling**: Every 1 minute.
 * **User Reports (Feed Refresh)**: Frontend polling every 1 minute.
+
+## Lightning History API (Trend Panel)
+* **Endpoint**: `GET /weather/lightning-history`
+* **Purpose**: Returns chart-ready lightning counts around NTU SRC for frontend trend rendering.
+* **Distance Options**: `15 km` and `30 km`.
+* **Time Windows**:
+    * `20m`: one bar per API snapshot.
+    * `1h`: one bar per API snapshot.
+    * `12h`: fixed 60 bars (time bins) for consistent layout.
+* **Response Metadata**:
+    * Includes coverage, truncation, and error hints for partial upstream data.
+    * `data_source` indicates `live_api`, `sample_data`, or degraded fallback.

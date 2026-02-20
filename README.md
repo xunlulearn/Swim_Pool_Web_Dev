@@ -21,6 +21,17 @@ The system uses cross-validation for better reliability:
 - Source A (Official): real-time lightning/rainfall related weather data via NEA APIs.
 - Source B (Crowdsourced): user-submitted live pool open/closed reports.
 
+### 1.1 Lightning Trend Chart
+
+The home page includes a lightning trend panel backed by `/weather/lightning-history`.
+- Distance filters: `15 km` and `30 km` from NTU SRC.
+- Time filters: `20 min`, `1 hour`, and `12 hours`.
+- Chart behavior:
+  - `20 min` and `1 hour`: one bar per NEA API snapshot.
+  - `12 hours`: normalized to 60 bars (fixed bins) for stable readability.
+  - A smooth curve overlays the bars by connecting each bar-top midpoint.
+- Data source metadata is returned in API payload and can be `live_api`, `sample_data`, or `degraded`.
+
 ### 2. Social Community
 
 A dedicated space for NTU swimmers:
@@ -179,6 +190,15 @@ Common commands:
 - `dev.bat sync --debug-query "泳池什么时候开放"`
 - `dev.bat sync --full-rebuild`
 - `dev.bat git-push "chore(repo): your message"`
+
+## Weather Engine Runtime Flags
+
+The following environment variables control weather data behavior:
+- `USE_SAMPLE_WEATHER_DATA` (`true`/`false`): enables sample weather payloads in DEBUG/TESTING only.
+- `FORCE_SAMPLE_WEATHER_DATA` (`true`/`false`): forces sample mode regardless of environment (local review helper).
+- `WEATHER_STATUS_CACHE_SECONDS`: cache TTL for `/weather/status` responses.
+- `LIGHTNING_HISTORY_CACHE_SECONDS`: cache TTL for `/weather/lightning-history` responses.
+- `LIGHTNING_HISTORY_MAX_PAGES`: max paged requests for lightning history pull (non-positive uses runtime default).
 
 PowerShell 5.1 compatibility:
 - Avoid chaining with `&&` in this repo's Windows shell context.
