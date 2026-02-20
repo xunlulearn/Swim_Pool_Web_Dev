@@ -26,10 +26,13 @@ The system uses cross-validation for better reliability:
 The home page includes a lightning trend panel backed by `/weather/lightning-history`.
 - Distance filters: `15 km` and `30 km` from NTU SRC.
 - Time filters: `20 min`, `1 hour`, and `12 hours`.
+- Refresh cadence: synchronized with status card and radar at `60 seconds`.
 - Chart behavior:
   - `20 min` and `1 hour`: one bar per NEA API snapshot.
   - `12 hours`: normalized to 60 bars (fixed bins) for stable readability.
   - A smooth curve overlays the bars by connecting each bar-top midpoint.
+- Consistency model:
+  - The latest snapshot point is aligned with the same shared lightning snapshot used by `/weather/status` and `/weather/lightning-radar`.
 - Data source metadata is returned in API payload and can be `live_api`, `sample_data`, or `degraded`.
 
 ### 1.2 Lightning Radar Map
@@ -44,6 +47,7 @@ The home page also includes a radar-style lightning map backed by `GET /weather/
 - Data and range:
   - Uses the latest lightning snapshot centered on NTU SRC.
   - Radar rings represent `7.5 km`, `15 km`, `22.5 km`, and `30 km`.
+  - Status card lightning metrics and radar metrics now use the same latest snapshot basis (`30 km around NTU SRC`).
   - API metadata follows the same source model (`live_api`, `sample_data`, `degraded`) as other weather endpoints.
 
 ### 2. Social Community
@@ -210,8 +214,9 @@ Common commands:
 The following environment variables control weather data behavior:
 - `USE_SAMPLE_WEATHER_DATA` (`true`/`false`): enables sample weather payloads in DEBUG/TESTING only.
 - `FORCE_SAMPLE_WEATHER_DATA` (`true`/`false`): forces sample mode regardless of environment (local review helper).
-- `WEATHER_STATUS_CACHE_SECONDS`: cache TTL for `/weather/status` responses.
-- `LIGHTNING_HISTORY_CACHE_SECONDS`: cache TTL for `/weather/lightning-history` responses.
+- `WEATHER_STATUS_CACHE_SECONDS`: cache TTL for `/weather/status` responses (default `30`).
+- `LIGHTNING_SNAPSHOT_CACHE_SECONDS`: cache TTL for shared latest lightning snapshot used by status/radar/history alignment (default `30`).
+- `LIGHTNING_HISTORY_CACHE_SECONDS`: cache TTL for `/weather/lightning-history` responses (default `60`).
 - `LIGHTNING_HISTORY_MAX_PAGES`: max paged requests for lightning history pull (non-positive uses runtime default).
 
 PowerShell 5.1 compatibility:

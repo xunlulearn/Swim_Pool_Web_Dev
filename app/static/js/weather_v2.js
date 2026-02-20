@@ -371,9 +371,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Initial load
-    updateWeather();
-
-    // Poll
-    setInterval(updateWeather, POLL_INTERVAL);
+    const registerRefresh = window.registerWeatherRefreshHandler;
+    if (typeof registerRefresh === 'function') {
+        registerRefresh(updateWeather);
+    } else {
+        updateWeather();
+        setInterval(updateWeather, POLL_INTERVAL);
+    }
 });

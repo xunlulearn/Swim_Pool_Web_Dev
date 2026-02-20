@@ -39,12 +39,13 @@ The system determines the pool status based on the following **Priority Order** 
 * **Status**: **OPEN** (Message: "Pool Likely Open").
 
 ## Update Frequency
-* **Weather Polling**: Every 1 minute.
+* **Weather Polling**: Every 1 minute for status card, lightning trend panel, and radar panel (synchronized frontend cadence).
 * **User Reports (Feed Refresh)**: Frontend polling every 1 minute.
 
 ## Lightning History API (Trend Panel)
 * **Endpoint**: `GET /weather/lightning-history`
 * **Purpose**: Returns chart-ready lightning counts around NTU SRC for frontend trend rendering.
+* **Consistency Rule**: The most recent chart point is aligned with the shared latest lightning snapshot used by status and radar endpoints.
 * **Distance Options**: `15 km` and `30 km`.
 * **Time Windows**:
     * `20m`: one bar per API snapshot.
@@ -56,7 +57,7 @@ The system determines the pool status based on the following **Priority Order** 
 
 ## Lightning Radar API (Radar Panel)
 * **Endpoint**: `GET /weather/lightning-radar`
-* **Purpose**: Returns latest snapshot point data for the homepage radar visualization around NTU SRC.
+* **Purpose**: Returns latest snapshot point data for the homepage radar visualization around NTU SRC, using the same shared snapshot basis as status metrics.
 * **Output Shape**:
     * `center`: NTU SRC center coordinates used by frontend projection.
     * `radius_km`: radar display radius (30 km).

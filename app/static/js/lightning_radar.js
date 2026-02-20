@@ -300,8 +300,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     animationId = window.requestAnimationFrame(animateScanner);
 
-    fetchRadarData();
-    window.setInterval(fetchRadarData, CONFIG.refreshInterval);
+    const registerRefresh = window.registerWeatherRefreshHandler;
+    if (typeof registerRefresh === 'function') {
+        registerRefresh(fetchRadarData);
+    } else {
+        fetchRadarData();
+        window.setInterval(fetchRadarData, CONFIG.refreshInterval);
+    }
 
     window.addEventListener('resize', () => {
         drawRadarBackground();

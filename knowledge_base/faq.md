@@ -32,13 +32,13 @@
 
 ### Q: What does "Nearest Lightning" mean and how is it calculated?
 
-**A:** "Nearest Lightning" shows the straight-line distance (in km) from the nearest detected lightning strike across Singapore to the NTU pool (SRC). The distance is calculated using the **Haversine formula** (great-circle distance, Earth radius R = 6,371 km). When the distance is > 15 km, the page displays ">15km" (safe). When ≤ 15 km, the actual distance is shown and pool closure is triggered.
+**A:** "Nearest Lightning" shows the straight-line distance (in km) from the nearest detected lightning strike in the latest NEA snapshot to the NTU pool (SRC). The distance is calculated using the **Haversine formula** (great-circle distance, Earth radius R = 6,371 km). When the distance is > 15 km, the page displays ">15km" (safe). When distance is <= 15 km, the actual distance is shown and pool closure is triggered.
 
 ---
 
 ### Q: What time window does "Lightning Count" cover?
 
-**A:** Lightning Count is the total number of lightning points across **all of Singapore** from the latest batch of NEA monitoring data — it is not a cumulative count over a fixed time window. The gradient legend on the page shows: 0 = safe (green), > 30 = caution (amber), higher = danger (red).
+**A:** Lightning Count is the number of lightning points within **30 km of NTU SRC** from the latest NEA snapshot. It is not a cumulative count over a fixed time window. This basis is shared by status card and radar snapshot to keep metrics consistent. The gradient legend on the page shows: 0 = safe (green), > 30 = caution (amber), higher = danger (red).
 
 ---
 

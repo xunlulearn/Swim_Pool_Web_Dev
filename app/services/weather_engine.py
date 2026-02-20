@@ -71,6 +71,10 @@ class WeatherEngine:
         self._lightning_history_cache_at = None
         self._lightning_history_cache_lock = Lock()
         self._lightning_history_refresh_lock = Lock()
+        self._lightning_snapshot_cache = None
+        self._lightning_snapshot_cache_at = None
+        self._lightning_snapshot_cache_lock = Lock()
+        self._lightning_snapshot_refresh_lock = Lock()
 
         # 2026 Singapore public holidays (YYYY-MM-DD).
         self.PUBLIC_HOLIDAYS_2026 = {
@@ -125,8 +129,8 @@ class WeatherEngine:
 
     def _get_lightning_history_cache_ttl_seconds(self):
         if has_app_context():
-            return int(current_app.config.get('LIGHTNING_HISTORY_CACHE_SECONDS', 180))
-        return 180
+            return int(current_app.config.get('LIGHTNING_HISTORY_CACHE_SECONDS', 60))
+        return 60
 
     def _get_lightning_history_max_pages(self):
         default_pages = 40
@@ -171,6 +175,42 @@ class WeatherEngine:
             if self._lightning_history_cache is None:
                 return None
             return copy.deepcopy(self._lightning_history_cache)
+
+    def _get_lightning_snapshot_cache_ttl_seconds(self):
+        if has_app_context():
+            return int(
+                current_app.config.get(
+                    'LIGHTNING_SNAPSHOT_CACHE_SECONDS',
+                    current_app.config.get('WEATHER_STATUS_CACHE_SECONDS', 30),
+                )
+            )
+        return 30
+
+    def _get_cached_lightning_snapshot(self):
+        ttl_seconds = self._get_lightning_snapshot_cache_ttl_seconds()
+        if ttl_seconds <= 0:
+            return None
+
+        with self._lightning_snapshot_cache_lock:
+            if self._lightning_snapshot_cache is None or self._lightning_snapshot_cache_at is None:
+                return None
+
+            age = (datetime.now(timezone.utc) - self._lightning_snapshot_cache_at).total_seconds()
+            if age > ttl_seconds:
+                return None
+
+            return copy.deepcopy(self._lightning_snapshot_cache)
+
+    def _set_cached_lightning_snapshot(self, payload):
+        with self._lightning_snapshot_cache_lock:
+            self._lightning_snapshot_cache = copy.deepcopy(payload)
+            self._lightning_snapshot_cache_at = datetime.now(timezone.utc)
+
+    def _get_stale_cached_lightning_snapshot(self):
+        with self._lightning_snapshot_cache_lock:
+            if self._lightning_snapshot_cache is None:
+                return None
+            return copy.deepcopy(self._lightning_snapshot_cache)
 
     @staticmethod
     def _build_degraded_details(reason):
@@ -324,6 +364,11 @@ class WeatherEngine:
             "lightning_count": lightning_details.get("lightning_count"),
             "min_distance_km": lightning_dist,  # Frontend compatibility
             "data_source": lightning_details.get("data_source", "live_api"),
+            "observation_time_sgt": lightning_details.get("observation_time_sgt"),
+            "lightning_count_basis": lightning_details.get("lightning_count_basis"),
+            "lightning_stale_cache": bool(lightning_details.get("stale_cache", False)),
+            "lightning_source_error": lightning_details.get("source_error"),
+            "lightning_warning": lightning_details.get("warning"),
         }
 
         is_open_hours, hours_msg = self._is_operating_hours()
@@ -602,7 +647,7 @@ class WeatherEngine:
 
         return counts_15km, counts_30km, int(bin_seconds)
 
-    def _build_lightning_history_charts(self, records, now_sgt):
+    def _build_lightning_history_charts(self, records, now_sgt, latest_snapshot=None):
         window_specs = {
             "20m": {
                 "duration": timedelta(minutes=20),
@@ -668,6 +713,27 @@ class WeatherEngine:
 
         snapshot_points.sort(key=lambda point: point["time"])
 
+        latest_metrics = (latest_snapshot or {}).get("metrics") or {}
+        latest_observed_at = self._parse_nea_datetime(
+            (latest_snapshot or {}).get("observation_time_sgt")
+        )
+        if latest_observed_at and cutoff_sgt <= latest_observed_at <= now_sgt:
+            override_point = {
+                "time": latest_observed_at,
+                "counts_15km": int(latest_metrics.get("within_15km_count") or 0),
+                "counts_30km": int(latest_metrics.get("within_30km_count") or 0),
+            }
+
+            merged = False
+            for index, point in enumerate(snapshot_points):
+                if point["time"] == latest_observed_at:
+                    snapshot_points[index] = override_point
+                    merged = True
+                    break
+            if not merged:
+                snapshot_points.append(override_point)
+                snapshot_points.sort(key=lambda point: point["time"])
+
         charts = {}
         for window_key, spec in window_specs.items():
             window_start = now_sgt - spec["duration"]
@@ -713,6 +779,8 @@ class WeatherEngine:
         if cached is not None:
             return cached
 
+        lightning_snapshot = self.get_lightning_snapshot()
+
         if not self._lightning_history_refresh_lock.acquire(blocking=False):
             stale = self._get_stale_cached_lightning_history()
             if stale is not None:
@@ -725,15 +793,21 @@ class WeatherEngine:
                 return stale
 
             now_sgt = datetime.now(self.SGT).replace(microsecond=0)
-            charts, _ = self._build_lightning_history_charts([], now_sgt)
+            charts, _ = self._build_lightning_history_charts(
+                [],
+                now_sgt,
+                latest_snapshot=lightning_snapshot,
+            )
             return {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
-                "observation_time_sgt": now_sgt.isoformat(),
+                "observation_time_sgt": (
+                    lightning_snapshot.get("observation_time_sgt") or now_sgt.isoformat()
+                ),
                 "distance_options_km": [15, 30],
                 "window_options": ["20m", "1h", "12h"],
                 "charts": charts,
                 "metadata": {
-                    "data_source": "degraded",
+                    "data_source": lightning_snapshot.get("data_source", "degraded"),
                     "requests_made": 0,
                     "records_loaded": 0,
                     "coverage_start_sgt": None,
@@ -745,6 +819,8 @@ class WeatherEngine:
                     "error": "refresh_in_progress",
                     "warning": "Lightning history refresh is in progress.",
                     "stale_cache": False,
+                    "snapshot_stale_cache": bool(lightning_snapshot.get("stale_cache", False)),
+                    "snapshot_source_error": lightning_snapshot.get("source_error"),
                 },
             }
 
@@ -753,7 +829,11 @@ class WeatherEngine:
             cutoff_sgt = now_sgt - timedelta(hours=12)
 
             records, fetch_meta = self._fetch_lightning_records_for_history(now_sgt, cutoff_sgt)
-            charts, oldest_counted_point = self._build_lightning_history_charts(records, now_sgt)
+            charts, oldest_counted_point = self._build_lightning_history_charts(
+                records,
+                now_sgt,
+                latest_snapshot=lightning_snapshot,
+            )
 
             coverage_start = fetch_meta.get("coverage_start")
             full_12h_coverage = bool(coverage_start and coverage_start <= cutoff_sgt)
@@ -762,10 +842,13 @@ class WeatherEngine:
                 fetch_meta.get("truncated", False),
                 fetch_meta.get("rate_limited", False),
             )
+            observation_time_sgt = (
+                lightning_snapshot.get("observation_time_sgt") or now_sgt.isoformat()
+            )
 
             payload = {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
-                "observation_time_sgt": now_sgt.isoformat(),
+                "observation_time_sgt": observation_time_sgt,
                 "distance_options_km": [15, 30],
                 "window_options": ["20m", "1h", "12h"],
                 "charts": charts,
@@ -784,6 +867,8 @@ class WeatherEngine:
                     "error": fetch_meta.get("error"),
                     "warning": warning,
                     "stale_cache": False,
+                    "snapshot_stale_cache": bool(lightning_snapshot.get("stale_cache", False)),
+                    "snapshot_source_error": lightning_snapshot.get("source_error"),
                 },
             }
 
@@ -858,261 +943,306 @@ class WeatherEngine:
             return "NEA API key missing or invalid."
         return "Weather data temporarily unavailable."
 
-    def get_lightning_radar_data(self, radius_km=30):
-        """Return the latest lightning points for radar visualization."""
+    def _build_unavailable_lightning_snapshot(self, data_source, error_code, warning=None):
+        return {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "observation_time_sgt": None,
+            "data_source": data_source,
+            "error": error_code,
+            "source_error": None,
+            "warning": warning or self._lightning_unavailable_message(error_code),
+            "stale_cache": False,
+            "metrics": {
+                "nearest_distance_km": None,
+                "within_15km_count": 0,
+                "within_30km_count": 0,
+                "total_valid_count": 0,
+                "risk_level": "unknown",
+                "close_threshold_km": self.LIGHTNING_CLOSE_THRESHOLD,
+                "warn_threshold_km": self.LIGHTNING_WARN_THRESHOLD,
+            },
+            "points": [],
+        }
+
+    @staticmethod
+    def _to_float(value):
         try:
-            payload, data_source, error_code = self._fetch_lightning_payload()
-            if error_code:
-                return {
-                    "generated_at": datetime.now(timezone.utc).isoformat(),
-                    "observation_time_sgt": None,
-                    "center": {
-                        "lat": self.SRC_LAT,
-                        "lng": self.SRC_LON,
-                        "label": "NTU SRC",
-                    },
-                    "radius_km": float(radius_km),
-                    "points": [],
-                    "metrics": {
-                        "nearest_distance_km": None,
-                        "within_radius_count": 0,
-                        "total_valid_count": 0,
-                        "risk_level": "unknown",
-                        "close_threshold_km": self.LIGHTNING_CLOSE_THRESHOLD,
-                        "warn_threshold_km": self.LIGHTNING_WARN_THRESHOLD,
-                    },
-                    "meta": {
-                        "data_source": data_source,
-                        "error": error_code,
-                        "warning": self._lightning_unavailable_message(error_code),
-                    },
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _build_stale_lightning_snapshot(self, stale_snapshot, warning, source_error):
+        stale = copy.deepcopy(stale_snapshot)
+        stale["stale_cache"] = True
+        stale["error"] = None
+        stale["source_error"] = source_error
+        stale["warning"] = warning
+        return stale
+
+    def _build_lightning_snapshot_from_payload(self, payload, data_source):
+        readings, observed_at = self._extract_latest_lightning_readings(payload)
+        points = []
+        nearest_distance = float('inf')
+        within_15km_count = 0
+        within_30km_count = 0
+
+        for reading in readings:
+            location = reading.get('location') or {}
+            lat = self._to_float(location.get('latitude'))
+            lon = self._to_float(location.get('longitude'))
+            if lat is None or lon is None:
+                continue
+
+            distance_km = self.haversine(self.SRC_LAT, self.SRC_LON, lat, lon)
+            distance_value = round(distance_km, 2)
+
+            if distance_km < nearest_distance:
+                nearest_distance = distance_km
+            if distance_km <= self.LIGHTNING_WARN_THRESHOLD:
+                within_15km_count += 1
+            if distance_km <= 30:
+                within_30km_count += 1
+
+            points.append(
+                {
+                    "lat": lat,
+                    "lng": lon,
+                    "distance_km": distance_value,
+                    "type": reading.get('type'),
+                    "datetime": reading.get('datetime'),
                 }
+            )
 
-            readings, observed_at = self._extract_latest_lightning_readings(payload)
-            valid_count = 0
-            nearest_distance = float('inf')
-            radius_points = []
+        points.sort(key=lambda point: point["distance_km"])
 
-            for reading in readings:
-                location = reading.get('location') or {}
-                lat_raw = location.get('latitude')
-                lon_raw = location.get('longitude')
-                if lat_raw is None or lon_raw is None:
-                    continue
+        nearest_value = None if nearest_distance == float('inf') else round(nearest_distance, 2)
+        if nearest_value is None:
+            risk_level = "clear"
+        elif nearest_value <= self.LIGHTNING_CLOSE_THRESHOLD:
+            risk_level = "high"
+        elif nearest_value <= self.LIGHTNING_WARN_THRESHOLD:
+            risk_level = "warning"
+        elif nearest_value <= 30:
+            risk_level = "watch"
+        else:
+            risk_level = "clear"
 
-                try:
-                    lat = float(lat_raw)
-                    lon = float(lon_raw)
-                except (TypeError, ValueError):
-                    continue
+        warning = None
+        if not readings:
+            warning = "No lightning readings are available in the latest snapshot."
+        elif not points:
+            warning = "No valid lightning coordinates are available in the latest snapshot."
 
-                valid_count += 1
-                distance_km = self.haversine(self.SRC_LAT, self.SRC_LON, lat, lon)
-                if distance_km < nearest_distance:
-                    nearest_distance = distance_km
+        return {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "observation_time_sgt": observed_at,
+            "data_source": data_source,
+            "error": None,
+            "source_error": None,
+            "warning": warning,
+            "stale_cache": False,
+            "metrics": {
+                "nearest_distance_km": nearest_value,
+                "within_15km_count": within_15km_count,
+                "within_30km_count": within_30km_count,
+                "total_valid_count": len(points),
+                "risk_level": risk_level,
+                "close_threshold_km": self.LIGHTNING_CLOSE_THRESHOLD,
+                "warn_threshold_km": self.LIGHTNING_WARN_THRESHOLD,
+            },
+            "points": points,
+        }
 
-                if distance_km <= radius_km:
-                    radius_points.append(
-                        {
-                            "lat": lat,
-                            "lng": lon,
-                            "distance_km": round(distance_km, 2),
-                            "type": reading.get('type'),
-                            "datetime": reading.get('datetime'),
-                        }
+    def get_lightning_snapshot(self):
+        cached = self._get_cached_lightning_snapshot()
+        if cached is not None:
+            return cached
+
+        if not self._lightning_snapshot_refresh_lock.acquire(blocking=False):
+            stale = self._get_stale_cached_lightning_snapshot()
+            if stale is not None:
+                return self._build_stale_lightning_snapshot(
+                    stale,
+                    "Using cached lightning snapshot while refresh is in progress.",
+                    "refresh_in_progress",
+                )
+            return self._build_unavailable_lightning_snapshot(
+                "degraded",
+                "refresh_in_progress",
+                "Lightning snapshot refresh is in progress.",
+            )
+
+        try:
+            try:
+                payload, data_source, error_code = self._fetch_lightning_payload()
+            except requests.exceptions.Timeout:
+                logger.warning("Lightning snapshot request timeout.")
+                stale = self._get_stale_cached_lightning_snapshot()
+                if stale is not None:
+                    return self._build_stale_lightning_snapshot(
+                        stale,
+                        "Using cached lightning snapshot due to upstream timeout.",
+                        "timeout",
                     )
+                return self._build_unavailable_lightning_snapshot(
+                    "degraded",
+                    "timeout",
+                    "Lightning snapshot request timed out.",
+                )
+            except requests.exceptions.RequestException:
+                logger.exception("Lightning snapshot request error.")
+                stale = self._get_stale_cached_lightning_snapshot()
+                if stale is not None:
+                    return self._build_stale_lightning_snapshot(
+                        stale,
+                        "Using cached lightning snapshot due to network error.",
+                        "network_error",
+                    )
+                return self._build_unavailable_lightning_snapshot(
+                    "degraded",
+                    "network_error",
+                    "Lightning snapshot request failed due to network error.",
+                )
 
-            radius_points.sort(key=lambda point: point["distance_km"])
-            if nearest_distance == float('inf'):
-                risk_level = "clear"
-                nearest_value = None
-            else:
-                nearest_value = round(nearest_distance, 2)
-                if nearest_distance <= self.LIGHTNING_CLOSE_THRESHOLD:
-                    risk_level = "high"
-                elif nearest_distance <= self.LIGHTNING_WARN_THRESHOLD:
-                    risk_level = "warning"
-                elif nearest_distance <= radius_km:
-                    risk_level = "watch"
-                else:
-                    risk_level = "clear"
+            if error_code:
+                stale = self._get_stale_cached_lightning_snapshot()
+                warning = self._lightning_unavailable_message(error_code)
+                if stale is not None:
+                    return self._build_stale_lightning_snapshot(
+                        stale,
+                        f"Using cached lightning snapshot ({warning})",
+                        error_code,
+                    )
+                return self._build_unavailable_lightning_snapshot(data_source, error_code, warning)
 
-            warning = None
-            if not readings:
-                warning = "No lightning readings are available in the latest snapshot."
-
-            return {
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-                "observation_time_sgt": observed_at,
-                "center": {
-                    "lat": self.SRC_LAT,
-                    "lng": self.SRC_LON,
-                    "label": "NTU SRC",
-                },
-                "radius_km": float(radius_km),
-                "points": radius_points,
-                "metrics": {
-                    "nearest_distance_km": nearest_value,
-                    "within_radius_count": len(radius_points),
-                    "total_valid_count": valid_count,
-                    "risk_level": risk_level,
-                    "close_threshold_km": self.LIGHTNING_CLOSE_THRESHOLD,
-                    "warn_threshold_km": self.LIGHTNING_WARN_THRESHOLD,
-                },
-                "meta": {
-                    "data_source": data_source,
-                    "error": None,
-                    "warning": warning,
-                },
-            }
-        except requests.exceptions.Timeout:
-            logger.warning("Lightning radar request timeout.")
-            return {
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-                "observation_time_sgt": None,
-                "center": {
-                    "lat": self.SRC_LAT,
-                    "lng": self.SRC_LON,
-                    "label": "NTU SRC",
-                },
-                "radius_km": float(radius_km),
-                "points": [],
-                "metrics": {
-                    "nearest_distance_km": None,
-                    "within_radius_count": 0,
-                    "total_valid_count": 0,
-                    "risk_level": "unknown",
-                    "close_threshold_km": self.LIGHTNING_CLOSE_THRESHOLD,
-                    "warn_threshold_km": self.LIGHTNING_WARN_THRESHOLD,
-                },
-                "meta": {
-                    "data_source": "degraded",
-                    "error": "timeout",
-                    "warning": "Lightning radar request timed out.",
-                },
-            }
-        except requests.exceptions.RequestException:
-            logger.exception("Lightning radar request error.")
-            return {
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-                "observation_time_sgt": None,
-                "center": {
-                    "lat": self.SRC_LAT,
-                    "lng": self.SRC_LON,
-                    "label": "NTU SRC",
-                },
-                "radius_km": float(radius_km),
-                "points": [],
-                "metrics": {
-                    "nearest_distance_km": None,
-                    "within_radius_count": 0,
-                    "total_valid_count": 0,
-                    "risk_level": "unknown",
-                    "close_threshold_km": self.LIGHTNING_CLOSE_THRESHOLD,
-                    "warn_threshold_km": self.LIGHTNING_WARN_THRESHOLD,
-                },
-                "meta": {
-                    "data_source": "degraded",
-                    "error": "network_error",
-                    "warning": "Lightning radar request failed due to network error.",
-                },
-            }
+            snapshot = self._build_lightning_snapshot_from_payload(payload, data_source)
+            self._set_cached_lightning_snapshot(snapshot)
+            return snapshot
         except Exception:
-            logger.exception("Unexpected weather engine error when building radar data.")
-            return {
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-                "observation_time_sgt": None,
-                "center": {
-                    "lat": self.SRC_LAT,
-                    "lng": self.SRC_LON,
-                    "label": "NTU SRC",
-                },
-                "radius_km": float(radius_km),
-                "points": [],
-                "metrics": {
-                    "nearest_distance_km": None,
-                    "within_radius_count": 0,
-                    "total_valid_count": 0,
-                    "risk_level": "unknown",
-                    "close_threshold_km": self.LIGHTNING_CLOSE_THRESHOLD,
-                    "warn_threshold_km": self.LIGHTNING_WARN_THRESHOLD,
-                },
-                "meta": {
-                    "data_source": "degraded",
-                    "error": "system_error",
-                    "warning": "Lightning radar is temporarily unavailable.",
-                },
+            logger.exception("Unexpected weather engine error when building lightning snapshot.")
+            stale = self._get_stale_cached_lightning_snapshot()
+            if stale is not None:
+                return self._build_stale_lightning_snapshot(
+                    stale,
+                    "Using cached lightning snapshot due to system error.",
+                    "system_error",
+                )
+            return self._build_unavailable_lightning_snapshot(
+                "degraded",
+                "system_error",
+                "Lightning snapshot is temporarily unavailable.",
+            )
+        finally:
+            self._lightning_snapshot_refresh_lock.release()
+
+    def get_lightning_radar_data(self, radius_km=30):
+        """Return radar visualization points from the shared lightning snapshot."""
+        snapshot = self.get_lightning_snapshot()
+        metrics = snapshot.get("metrics") or {}
+
+        radius_value = self._to_float(radius_km)
+        if radius_value is None or radius_value <= 0:
+            radius_value = 30.0
+
+        all_points = snapshot.get("points") or []
+        radius_points = [
+            {
+                "lat": point.get("lat"),
+                "lng": point.get("lng"),
+                "distance_km": point.get("distance_km"),
+                "type": point.get("type"),
+                "datetime": point.get("datetime"),
             }
+            for point in all_points
+            if self._to_float(point.get("distance_km")) is not None
+            and float(point.get("distance_km")) <= radius_value
+        ]
+
+        nearest_value = metrics.get("nearest_distance_km")
+        if snapshot.get("error"):
+            risk_level = "unknown"
+        elif nearest_value is None:
+            risk_level = "clear"
+        elif nearest_value <= self.LIGHTNING_CLOSE_THRESHOLD:
+            risk_level = "high"
+        elif nearest_value <= self.LIGHTNING_WARN_THRESHOLD:
+            risk_level = "warning"
+        elif nearest_value <= radius_value:
+            risk_level = "watch"
+        else:
+            risk_level = "clear"
+
+        return {
+            "generated_at": snapshot.get("generated_at") or datetime.now(timezone.utc).isoformat(),
+            "observation_time_sgt": snapshot.get("observation_time_sgt"),
+            "center": {
+                "lat": self.SRC_LAT,
+                "lng": self.SRC_LON,
+                "label": "NTU SRC",
+            },
+            "radius_km": float(radius_value),
+            "points": radius_points,
+            "metrics": {
+                "nearest_distance_km": nearest_value,
+                "within_radius_count": len(radius_points),
+                "total_valid_count": int(metrics.get("total_valid_count") or 0),
+                "risk_level": risk_level,
+                "close_threshold_km": self.LIGHTNING_CLOSE_THRESHOLD,
+                "warn_threshold_km": self.LIGHTNING_WARN_THRESHOLD,
+            },
+            "meta": {
+                "data_source": snapshot.get("data_source", "degraded"),
+                "error": snapshot.get("error"),
+                "source_error": snapshot.get("source_error"),
+                "warning": snapshot.get("warning"),
+                "stale_cache": bool(snapshot.get("stale_cache", False)),
+            },
+        }
 
     def get_lightning_status(self):
-        """Fetch lightning points and return nearest distance + count."""
-        try:
-            data, data_source, error_code = self._fetch_lightning_payload()
-            if error_code:
-                return (
-                    PoolStatus.AMBER,
-                    self._lightning_unavailable_message(error_code),
-                    {"error": error_code},
-                )
+        """Fetch nearest lightning metrics from the shared latest snapshot."""
+        snapshot = self.get_lightning_snapshot()
+        error_code = snapshot.get("error")
+        if error_code:
+            return (
+                PoolStatus.AMBER,
+                self._lightning_unavailable_message(error_code),
+                {
+                    "error": error_code,
+                    "data_source": snapshot.get("data_source", "degraded"),
+                    "warning": snapshot.get("warning"),
+                },
+            )
 
-            records = data.get('data', {}).get('records', [])
-            all_readings = []
-            for record in records:
-                item = record.get('item', {})
-                readings = item.get('readings', [])
-                all_readings.extend(readings)
+        metrics = snapshot.get("metrics") or {}
+        min_distance = metrics.get("nearest_distance_km")
+        within_30km_count = int(metrics.get("within_30km_count") or 0)
 
-            min_distance = float('inf')
-            lightning_count = len(all_readings)
+        if min_distance is not None and min_distance <= self.LIGHTNING_WARN_THRESHOLD:
+            status = PoolStatus.RED
+            message = f"Lightning detected nearby ({min_distance:.1f}km) - Pool Closed"
+        else:
+            status = PoolStatus.GREEN
+            message = "No lightning nearby - Pool is Open"
 
-            for reading in all_readings:
-                location = reading.get('location', {})
-                lat_str = location.get('latitude')
-                lon_str = location.get('longitude')
-                if lat_str is None or lon_str is None:
-                    continue
+        details = {
+            "min_distance_km": round(min_distance, 2)
+            if min_distance is not None
+            else 999.0,
+            "lightning_count": within_30km_count,
+            "lightning_count_basis": "within_30km_latest_snapshot",
+            "timestamp": snapshot.get("generated_at") or datetime.now(timezone.utc).isoformat(),
+            "observation_time_sgt": snapshot.get("observation_time_sgt"),
+            "data_source": snapshot.get("data_source", "live_api"),
+        }
+        if snapshot.get("stale_cache"):
+            details["stale_cache"] = True
+        if snapshot.get("source_error"):
+            details["source_error"] = snapshot.get("source_error")
+        if snapshot.get("warning"):
+            details["warning"] = snapshot.get("warning")
 
-                try:
-                    lat = float(lat_str)
-                    lon = float(lon_str)
-                except (ValueError, TypeError):
-                    continue
-
-                distance = self.haversine(self.SRC_LAT, self.SRC_LON, lat, lon)
-                if distance < min_distance:
-                    min_distance = distance
-
-            if min_distance <= self.LIGHTNING_WARN_THRESHOLD:
-                status = PoolStatus.RED
-                message = (
-                    f"Lightning detected nearby ({min_distance:.1f}km) - Pool Closed"
-                )
-            else:
-                status = PoolStatus.GREEN
-                message = "No lightning nearby - Pool is Open"
-
-            details = {
-                # If no lightning point exists, return a large safe distance so UI
-                # can consistently display '>15km' and safe color state.
-                "min_distance_km": round(min_distance, 2)
-                if min_distance != float('inf')
-                else 999.0,
-                "lightning_count": lightning_count,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "data_source": data_source,
-            }
-
-            return status, message, details
-
-        except requests.exceptions.Timeout:
-            logger.warning("Lightning API request timeout.")
-            return PoolStatus.AMBER, "Weather request timeout.", {"error": "timeout"}
-        except requests.exceptions.RequestException:
-            logger.exception("Lightning API request error.")
-            return PoolStatus.AMBER, "Weather network error.", {"error": "network_error"}
-        except Exception:
-            logger.exception("Unexpected weather engine error when fetching lightning status.")
-            return PoolStatus.AMBER, "Weather system error.", {"error": "system_error"}
+        return status, message, details
 
     def get_rainfall_status(self):
         """Fetch NTU-nearest station rainfall and normalize to mm/h."""

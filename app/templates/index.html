@@ -57,7 +57,7 @@
                                             ?
                                         </button>
                                         <div class="pointer-events-none absolute right-0 top-6 z-10 w-56 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-left text-[11px] leading-5 text-slate-600 opacity-0 shadow-lg transition duration-200 group-hover:opacity-100 group-focus-within:opacity-100">
-                                            This is the real-time lightning strike count across Singapore.
+                                            This is the latest lightning strike count within 30 km of NTU SRC.
                                         </div>
                                     </div>
                                 </div>
@@ -276,8 +276,9 @@
 
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-<script src="{{ url_for('static', filename='js/weather_v2.js', v='20260218-4') }}"></script>
-<script src="{{ url_for('static', filename='js/lightning_chart.js', v='20260220-5') }}"></script>
-<script src="{{ url_for('static', filename='js/lightning_radar.js', v='20260220-8') }}"></script>
+<script src="{{ url_for('static', filename='js/weather_refresh_bus.js', v='20260220-1') }}"></script>
+<script src="{{ url_for('static', filename='js/weather_v2.js', v='20260220-9') }}"></script>
+<script src="{{ url_for('static', filename='js/lightning_chart.js', v='20260220-9') }}"></script>
+<script src="{{ url_for('static', filename='js/lightning_radar.js', v='20260220-9') }}"></script>
 <script src="{{ url_for('static', filename='js/live_status.js', v='20260220-1') }}"></script>
 {% endblock %}

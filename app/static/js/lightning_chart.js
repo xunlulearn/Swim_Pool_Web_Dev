@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     const HISTORY_ENDPOINT = '/weather/lightning-history';
-    const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+    const REFRESH_INTERVAL_MS = 60000;
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     const ui = {
@@ -344,6 +344,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     refreshFilterStyles();
-    fetchHistory();
-    setInterval(fetchHistory, REFRESH_INTERVAL_MS);
+    const registerRefresh = window.registerWeatherRefreshHandler;
+    if (typeof registerRefresh === 'function') {
+        registerRefresh(fetchHistory);
+    } else {
+        fetchHistory();
+        setInterval(fetchHistory, REFRESH_INTERVAL_MS);
+    }
 });
