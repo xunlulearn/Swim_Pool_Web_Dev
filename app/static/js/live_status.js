@@ -4,10 +4,59 @@ document.addEventListener('DOMContentLoaded', () => {
     const reportOptions = document.getElementById('report-options');
 
     const API_URL = '/api/live-status/';
+    const CSRF_ERROR_TEXT = 'invalid or missing csrf token';
 
     function getCsrfToken() {
         const meta = document.querySelector('meta[name="csrf-token"]');
-        return meta ? meta.getAttribute('content') : '';
+        return meta ? String(meta.getAttribute('content') || '').trim() : '';
+    }
+
+    function setCsrfToken(token) {
+        const normalized = String(token || '').trim();
+        if (!normalized) return;
+
+        let meta = document.querySelector('meta[name="csrf-token"]');
+        if (!meta) {
+            meta = document.createElement('meta');
+            meta.setAttribute('name', 'csrf-token');
+            document.head.appendChild(meta);
+        }
+        meta.setAttribute('content', normalized);
+
+        document.querySelectorAll('input[name="csrf_token"]').forEach((inputEl) => {
+            inputEl.value = normalized;
+        });
+    }
+
+    function isCsrfErrorResponse(response, payload) {
+        if (!response || response.status !== 400) return false;
+        const errorText = String(payload?.error || '').trim().toLowerCase();
+        return errorText === CSRF_ERROR_TEXT;
+    }
+
+    async function refreshCsrfToken() {
+        try {
+            const res = await fetch('/api/csrf-token', {
+                method: 'GET',
+                headers: { Accept: 'application/json' },
+                credentials: 'same-origin',
+                cache: 'no-store',
+            });
+            if (!res.ok) return '';
+            const data = await res.json().catch(() => ({}));
+            const token = String(data?.csrf_token || '').trim();
+            if (!token) return '';
+            setCsrfToken(token);
+            return token;
+        } catch (_error) {
+            return '';
+        }
+    }
+
+    async function resolveCsrfToken() {
+        const token = getCsrfToken();
+        if (token) return token;
+        return refreshCsrfToken();
     }
 
     function timeAgo(dateString) {
@@ -96,21 +145,45 @@ document.addEventListener('DOMContentLoaded', () => {
                 const status = e.currentTarget.dataset.status;
 
                 try {
-                    const res = await fetch(API_URL, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRFToken': getCsrfToken(),
-                        },
-                        body: JSON.stringify({ status }),
-                    });
+                    const sendRequest = (token) =>
+                        fetch(API_URL, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRFToken': token,
+                            },
+                            credentials: 'same-origin',
+                            body: JSON.stringify({ status }),
+                        });
+
+                    const csrfToken = await resolveCsrfToken();
+                    if (!csrfToken) {
+                        alert('Error: CSRF token missing, please refresh and retry.');
+                        return;
+                    }
+
+                    let res = await sendRequest(csrfToken);
+                    let err = null;
+                    if (!res.ok) {
+                        err = await res.json().catch(() => ({}));
+                        if (isCsrfErrorResponse(res, err)) {
+                            const refreshedToken = await refreshCsrfToken();
+                            if (refreshedToken) {
+                                res = await sendRequest(refreshedToken);
+                                if (!res.ok) {
+                                    err = await res.json().catch(() => ({}));
+                                } else {
+                                    err = null;
+                                }
+                            }
+                        }
+                    }
 
                     if (res.ok) {
                         alert('Thanks for your report!');
                         reportOptions.classList.add('hidden');
                         fetchReports();
                     } else {
-                        const err = await res.json().catch(() => ({}));
                         alert('Error: ' + (err.error || 'Failed to submit'));
                     }
                 } catch (err) {

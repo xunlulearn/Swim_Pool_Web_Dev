@@ -120,10 +120,71 @@
     let statusAnimationTimer = null;
     let statusAnimationFrame = 0;
     let clearDoneTimer = null;
+    const CSRF_ERROR_TEXT = "invalid or missing csrf token";
 
     const getCsrfToken = () => {
         const meta = document.querySelector('meta[name="csrf-token"]');
         return (meta?.getAttribute("content") || "").trim();
+    };
+
+    const setCsrfToken = (token) => {
+        const normalized = String(token || "").trim();
+        if (!normalized) {
+            return;
+        }
+
+        let meta = document.querySelector('meta[name="csrf-token"]');
+        if (!meta) {
+            meta = document.createElement("meta");
+            meta.setAttribute("name", "csrf-token");
+            document.head.appendChild(meta);
+        }
+        meta.setAttribute("content", normalized);
+
+        document.querySelectorAll('input[name="csrf_token"]').forEach((inputEl) => {
+            inputEl.value = normalized;
+        });
+    };
+
+    const isCsrfErrorPayload = (response, payload) => {
+        if (!response || response.status !== 400) {
+            return false;
+        }
+        const errorText = String(payload?.error || "").trim().toLowerCase();
+        return errorText === CSRF_ERROR_TEXT;
+    };
+
+    const refreshCsrfToken = async () => {
+        try {
+            const response = await fetch("/api/csrf-token", {
+                method: "GET",
+                headers: {
+                    Accept: "application/json",
+                },
+                credentials: "same-origin",
+                cache: "no-store",
+            });
+            if (!response.ok) {
+                return "";
+            }
+            const data = await response.json().catch(() => ({}));
+            const token = String(data?.csrf_token || "").trim();
+            if (!token) {
+                return "";
+            }
+            setCsrfToken(token);
+            return token;
+        } catch (_error) {
+            return "";
+        }
+    };
+
+    const resolveCsrfToken = async () => {
+        const existingToken = getCsrfToken();
+        if (existingToken) {
+            return existingToken;
+        }
+        return refreshCsrfToken();
     };
 
     const getHintHiddenPreference = () => {
@@ -290,7 +351,7 @@
         locale = activeLocale,
     }) => {
         const uiLocale = normalizeLocale(locale);
-        const csrfToken = getCsrfToken();
+        const csrfToken = await resolveCsrfToken();
         if (!csrfToken) {
             helperText.textContent = getUiText("missingCsrf", uiLocale);
             return;
@@ -305,20 +366,31 @@
         helperText.textContent = getUiText("feedbackSubmitting", uiLocale);
 
         try {
-            const response = await fetch("/api/chat/feedback", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "X-CSRFToken": csrfToken,
-                },
-                body: JSON.stringify({
-                    conversation_id: conversationId,
-                    rating,
-                    comment,
-                }),
-            });
+            const makeRequest = (token) =>
+                fetch("/api/chat/feedback", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-CSRFToken": token,
+                    },
+                    credentials: "same-origin",
+                    body: JSON.stringify({
+                        conversation_id: conversationId,
+                        rating,
+                        comment,
+                    }),
+                });
 
-            const data = await response.json().catch(() => ({}));
+            let response = await makeRequest(csrfToken);
+            let data = await response.json().catch(() => ({}));
+            if (isCsrfErrorPayload(response, data)) {
+                const refreshedToken = await refreshCsrfToken();
+                if (refreshedToken) {
+                    response = await makeRequest(refreshedToken);
+                    data = await response.json().catch(() => ({}));
+                }
+            }
+
             if (!response.ok) {
                 throw new Error(data?.error || `Request failed (${response.status})`);
             }
@@ -584,7 +656,7 @@
         }
         activeLocale = detectLocaleFromText(message, activeLocale);
 
-        const csrfToken = getCsrfToken();
+        const csrfToken = await resolveCsrfToken();
         if (!csrfToken) {
             statusEl.textContent = getUiText("missingCsrf");
             return;
@@ -598,18 +670,37 @@
         const assistantDraft = appendAssistantDraft(activeLocale);
 
         try {
-            const response = await fetch("/api/chat/stream", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "X-CSRFToken": csrfToken,
-                },
-                body: JSON.stringify({ message }),
-            });
+            const makeRequest = (token) =>
+                fetch("/api/chat/stream", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-CSRFToken": token,
+                    },
+                    credentials: "same-origin",
+                    body: JSON.stringify({ message }),
+                });
+
+            let response = await makeRequest(csrfToken);
+            let errorPayload = null;
+            if (!response.ok) {
+                errorPayload = await response.json().catch(() => ({}));
+                if (isCsrfErrorPayload(response, errorPayload)) {
+                    const refreshedToken = await refreshCsrfToken();
+                    if (refreshedToken) {
+                        response = await makeRequest(refreshedToken);
+                        if (!response.ok) {
+                            errorPayload = await response.json().catch(() => ({}));
+                        } else {
+                            errorPayload = null;
+                        }
+                    }
+                }
+            }
 
             if (!response.ok) {
-                const data = await response.json().catch(() => ({}));
-                const errorMsg = data?.error || `Request failed (${response.status})`;
+                const errorMsg =
+                    errorPayload?.error || `Request failed (${response.status})`;
                 updateAssistantDraft(assistantDraft, errorMsg);
                 stopStatusAnimation();
                 statusEl.textContent = "";

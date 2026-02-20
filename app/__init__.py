@@ -185,6 +185,12 @@ def create_app(config_name=None):
     def index():
         return render_template('index.html')
 
+    @app.get('/api/csrf-token')
+    def csrf_token():
+        response = jsonify({'csrf_token': generate_csrf_token()})
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+
     # Context processor: inject unread message count into all templates
     @app.context_processor
     def inject_unread_count():
