@@ -24,3 +24,4 @@
     *   **CSRF Protection**:
         *   All state-changing requests (`POST/PUT/PATCH/DELETE`) require CSRF token validation.
         *   Tokens are issued to templates and also accepted via request header for JS `fetch`.
+        *   Browser clients can refresh stale CSRF tokens via `GET /api/csrf-token`.

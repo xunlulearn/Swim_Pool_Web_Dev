@@ -216,6 +216,7 @@ For LangGraph/LangChain chatbot deployment details, see `CHATBOT_DEPLOY.md`.
 12. Every model invocation failure is logged to Supabase tables:
    - `chatbot_intent_model_failures`
    - `chatbot_qa_model_failures`
+13. Browser chat flows recover from stale CSRF tokens by requesting `GET /api/csrf-token` and retrying once on CSRF `400`.
 
 ## Chatbot Knowledge Sync
 

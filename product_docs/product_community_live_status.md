@@ -5,6 +5,7 @@
     * **Action**: "Report Status" button accessible on the main dashboard.
     * **Options**: Users can report "Pool is Open" or "Pool is Closed".
     * **Permission**: Only logged-in **and verified** users can report. Guests can view but cannot report.
+    * **CSRF Resilience**: Report requests include `X-CSRFToken`; on stale-token `400`, frontend fetches a fresh token from `GET /api/csrf-token` and retries once.
 * **Live Feed Display**:
     * **Location**: Prominently displayed near the main Status Indicator.
     * **Content**: List of the **latest 10 user reports**.

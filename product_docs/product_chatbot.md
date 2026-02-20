@@ -1,7 +1,7 @@
 ﻿# Product 4 Spec: NTUPOOL Chatbot (Intent-Routed RAG)
 
-Version: v2.4
-Date: 2026-02-17
+Version: v2.5
+Date: 2026-02-20
 Stack: Flask + LangGraph + LangChain + Supabase pgvector + OpenAI-compatible API
 
 ## 1. Goal
@@ -31,9 +31,9 @@ Deliver a production-usable chatbot on `ntupool.org` that:
   - guest: login prompt block (no send input)
   - logged in: message textarea + send button
 - `app/static/js/chatbot.js` handles:
-  - `/api/chat` + CSRF
+  - `/api/chat/stream` + CSRF auto-refresh/retry
   - thread rendering + sources
-  - 5-star feedback widget rendering and submit (`/api/chat/feedback`)
+  - 5-star feedback widget rendering and submit (`/api/chat/feedback`) with CSRF auto-refresh/retry
 
 ### 2.3 Deployment and Docs
 - `deploy_update.bat` includes chatbot env checks/injection.
@@ -173,11 +173,19 @@ If `SupabaseVectorStore` methods fail due SDK version mismatch, fallback to dire
   - `500`: internal error
 - CSRF:
   - request must include valid `X-CSRFToken` in browser flow.
+  - stale token recovery uses `GET /api/csrf-token`, then frontend retries once.
+
+### 7.3 `GET /api/csrf-token`
+- Purpose:
+  - provide a fresh CSRF token for browser clients without full page reload
+- Response:
+  - `200`: `{"csrf_token":"<signed-token>"}` with `Cache-Control: no-store`
 
 ## 8. Frontend Contract
 - Homepage includes floating chatbot launcher + popup panel.
 - Guest panel shows login prompt only.
 - Logged-in panel supports input submit (`Enter` to send, `Ctrl/Cmd + Enter` newline).
+- Chat send and feedback submit automatically refresh CSRF token and retry once on CSRF `400`.
 - Reply message renders sources when provided.
 - On `feedback_required=true`, frontend appends a 5-star rating widget to assistant bubble.
 - Rating click posts to `/api/chat/feedback` and locks after success.

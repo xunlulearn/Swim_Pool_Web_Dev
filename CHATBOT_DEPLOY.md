@@ -1,6 +1,6 @@
 ﻿# Chatbot Deployment Guide
 
-Updated: 2026-02-19
+Updated: 2026-02-20
 
 This runbook matches the current NTU Pool codebase and deployment scripts.
 
@@ -54,6 +54,9 @@ Practical recommendation:
 10. Every model invocation failure is logged in Supabase:
    - intent model failures -> `chatbot_intent_model_failures`
    - QA model failures -> `chatbot_qa_model_failures`
+11. CSRF recovery for browser clients:
+   - `GET /api/csrf-token` returns a fresh token (`Cache-Control: no-store`)
+   - frontend chat/report flows refresh token and retry once when a CSRF `400` is returned
 
 ## 2. Supabase Initialization
 1. Open Supabase SQL Editor.
@@ -130,6 +133,7 @@ dev.bat sync --full-rebuild
 ### 4.1 API smoke (requires valid CSRF token)
 - Start app locally.
 - Use browser flow or test client flow that includes `X-CSRFToken`.
+- For manual API calls, first request `GET /api/csrf-token` and use returned token in `X-CSRFToken`.
 - Verify unauthenticated `POST /api/chat` returns `401`.
 - Verify unauthenticated `POST /api/chat/feedback` returns `401`.
 
@@ -214,8 +218,8 @@ Important:
 - Current code has RPC fallback in `graph.py`; ensure latest code is deployed.
 
 ### 7.6 CSRF errors (`400 Invalid or missing CSRF token`)
-- Frontend already sends `X-CSRFToken` from meta tag.
-- For manual API tests, include a valid token in request headers.
+- Frontend sends `X-CSRFToken`, and now auto-refreshes token via `GET /api/csrf-token` with one retry on CSRF `400`.
+- For manual API tests, fetch a fresh token from `GET /api/csrf-token` and include it in request headers.
 
 ### 7.7 Feedback UI not showing at 10th message
 - Confirm chat rows are actually inserted into `chatbot_conversations`.
