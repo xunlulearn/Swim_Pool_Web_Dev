@@ -1,0 +1,170 @@
+<section
+    id="lightning-radar-panel"
+    class="mb-6 w-full max-w-3xl rounded-2xl border border-slate-200/80 bg-gradient-to-b from-white via-sky-50/55 to-slate-50 p-4 shadow-sm backdrop-blur-md"
+>
+    <style>
+        #lightning-radar-panel {
+            --radar-bg: #e1f9fc;
+            --radar-line: rgba(95, 134, 194, 0.2);
+            --radar-sweep: rgba(167, 139, 250, 0.6);
+            --point-color: #ff3b30;
+            --text-main: #1e293b;
+            --text-muted: #475569;
+        }
+
+        /* Radar surface and layers */
+        #lightning-radar-surface {
+            position: relative;
+            width: 100%;
+            max-width: 30rem;
+            aspect-ratio: 1 / 1;
+            margin-inline: auto;
+            border-radius: 9999px;
+            overflow: hidden;
+            background: var(--radar-bg);
+            box-shadow: 0 0 38px rgba(14, 116, 144, 0.14), inset 0 0 28px rgba(37, 99, 235, 0.08);
+        }
+
+        #lightning-radar-surface canvas,
+        #lightning-radar-points {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: inherit;
+        }
+
+        #lightning-radar-bg {
+            z-index: 1;
+        }
+
+        #lightning-radar-sweep {
+            z-index: 2;
+        }
+
+        #lightning-radar-points {
+            z-index: 3;
+            pointer-events: none;
+        }
+
+        /* NTU center marker */
+        #lightning-radar-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 2.9rem;
+            height: 2.9rem;
+            transform: translate(-50%, -50%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.85rem;
+            border: 2px solid rgba(29, 78, 216, 0.85);
+            background: rgba(255, 255, 255, 0.95);
+            box-shadow: 0 0 16px rgba(37, 99, 235, 0.35);
+            overflow: hidden;
+            z-index: 8;
+        }
+
+        #lightning-radar-center img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #ffffff;
+        }
+
+        /* Lightning point animations */
+        .lightning-point {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            border-radius: 9999px;
+            transform: translate(-50%, -50%);
+            background-color: var(--point-color);
+            animation: breathe 1.5s infinite ease-in-out;
+            transition: all 0.3s ease;
+        }
+
+        .lightning-point.scanned {
+            background-color: #ffffff;
+            box-shadow: 0 0 20px #ffffff, 0 0 30px var(--point-color);
+            transform: translate(-50%, -50%) scale(2);
+            animation: none;
+        }
+
+        .lightning-point.fade-out {
+            opacity: 0 !important;
+            transform: translate(-50%, -50%) scale(0) !important;
+        }
+
+        @keyframes breathe {
+            0% {
+                transform: translate(-50%, -50%) scale(1);
+                opacity: 0.7;
+                box-shadow: 0 0 5px var(--point-color);
+            }
+            50% {
+                transform: translate(-50%, -50%) scale(1.6);
+                opacity: 1;
+                box-shadow: 0 0 15px var(--point-color), 0 0 5px var(--point-color);
+            }
+            100% {
+                transform: translate(-50%, -50%) scale(1);
+                opacity: 0.7;
+                box-shadow: 0 0 5px var(--point-color);
+            }
+        }
+
+    </style>
+
+    <div class="flex flex-col gap-2 text-left sm:flex-row sm:items-start sm:justify-between">
+        <div>
+            <h3 class="text-sm font-bold text-slate-800">Lightning Radar (30 km)</h3>
+            <p class="mt-1 text-[11px] text-slate-500">
+                Centered on NTU SRC and refreshed from the latest lightning snapshot.
+            </p>
+        </div>
+        <div class="text-left text-[11px] text-slate-500 sm:text-right">
+            <p id="lightning-radar-updated">Snapshot time: --</p>
+        </div>
+    </div>
+
+    <div class="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_12.5rem]">
+        <div class="rounded-2xl border border-slate-200 bg-gradient-to-br from-white via-slate-50/95 to-sky-50/80 p-3">
+            <div id="lightning-radar-surface" aria-label="Lightning radar map" role="img">
+                <canvas id="lightning-radar-bg" width="800" height="800"></canvas>
+                <canvas id="lightning-radar-sweep" width="800" height="800"></canvas>
+                <div id="lightning-radar-points">
+                    <div id="lightning-radar-center">
+                        <img src="{{ url_for('static', filename='img/logo.png') }}" alt="NTU Pool logo" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <aside class="rounded-2xl border border-sky-200/70 bg-gradient-to-b from-white via-sky-50/55 to-cyan-50/45 p-3 text-left shadow-sm">
+            <p class="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Radar Status</p>
+            <p id="lightning-radar-status" class="mt-2 text-xs font-medium text-slate-700">Initializing radar...</p>
+
+            <div class="mt-3 space-y-3">
+                <div>
+                    <p class="text-[11px] text-slate-500">Points within 30 km</p>
+                    <p id="lightning-radar-count" class="text-sm font-bold text-slate-800">0</p>
+                </div>
+                <div>
+                    <p class="text-[11px] text-slate-500">Nearest strike</p>
+                    <p id="lightning-radar-nearest" class="text-sm font-bold text-slate-800">-- km</p>
+                </div>
+                <div>
+                    <p class="text-[11px] text-slate-500">Risk level</p>
+                    <p id="lightning-radar-risk" class="text-sm font-bold text-slate-700">--</p>
+                </div>
+            </div>
+
+            <p class="mt-3 text-[10px] leading-5 text-slate-500">
+                Ring radius: 7.5 km, 15 km, 22.5 km, 30 km.
+            </p>
+        </aside>
+    </div>
+</section>
+

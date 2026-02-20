@@ -216,6 +216,8 @@
                 </p>
             </section>
 
+            {% include "radar_chart.html" %}
+
             <!-- Community Live Feeder -->
             <div class="mb-6 w-full max-w-2xl rounded-2xl border border-slate-200/80 bg-gradient-to-b from-white via-sky-50/55 to-slate-50 p-4 shadow-sm backdrop-blur-md">
                 <div class="mb-4 flex items-center justify-between">
@@ -276,5 +278,6 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="{{ url_for('static', filename='js/weather_v2.js', v='20260218-4') }}"></script>
 <script src="{{ url_for('static', filename='js/lightning_chart.js', v='20260220-5') }}"></script>
+<script src="{{ url_for('static', filename='js/lightning_radar.js', v='20260220-8') }}"></script>
 <script src="{{ url_for('static', filename='js/live_status.js', v='20260220-1') }}"></script>
 {% endblock %}

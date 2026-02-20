@@ -30,3 +30,13 @@ def lightning_history():
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
+
+
+@weather_bp.route('/lightning-radar')
+def lightning_radar():
+    payload = weather_engine.get_lightning_radar_data()
+    response = jsonify(payload)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response

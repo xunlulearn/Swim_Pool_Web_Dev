@@ -32,6 +32,20 @@ The home page includes a lightning trend panel backed by `/weather/lightning-his
   - A smooth curve overlays the bars by connecting each bar-top midpoint.
 - Data source metadata is returned in API payload and can be `live_api`, `sample_data`, or `degraded`.
 
+### 1.2 Lightning Radar Map
+
+The home page also includes a radar-style lightning map backed by `GET /weather/lightning-radar`.
+- Rendering model:
+  - Radar grid and sweep use layered HTML5 canvas.
+  - Lightning points are DOM elements so each point can pulse and be highlighted independently.
+- Visual behavior:
+  - Points pulse continuously in red (`breathe` animation).
+  - When the sweep head crosses a point angle, the point briefly switches to a white highlighted state (`scanned` class), then returns to red pulse.
+- Data and range:
+  - Uses the latest lightning snapshot centered on NTU SRC.
+  - Radar rings represent `7.5 km`, `15 km`, `22.5 km`, and `30 km`.
+  - API metadata follows the same source model (`live_api`, `sample_data`, `degraded`) as other weather endpoints.
+
 ### 2. Social Community
 
 A dedicated space for NTU swimmers:

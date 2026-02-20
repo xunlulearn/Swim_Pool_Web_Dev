@@ -53,3 +53,18 @@ The system determines the pool status based on the following **Priority Order** 
 * **Response Metadata**:
     * Includes coverage, truncation, and error hints for partial upstream data.
     * `data_source` indicates `live_api`, `sample_data`, or degraded fallback.
+
+## Lightning Radar API (Radar Panel)
+* **Endpoint**: `GET /weather/lightning-radar`
+* **Purpose**: Returns latest snapshot point data for the homepage radar visualization around NTU SRC.
+* **Output Shape**:
+    * `center`: NTU SRC center coordinates used by frontend projection.
+    * `radius_km`: radar display radius (30 km).
+    * `points`: list of lightning points with latitude, longitude, and computed distance.
+    * `metrics`: nearest distance, count within radius, and risk-level summary.
+    * `meta`: source and warning/error details.
+* **Frontend Interaction Contract**:
+    * Radar sweep angle is updated every animation frame.
+    * Each point angle is calculated with `Math.atan2`.
+    * If sweep-to-point angle difference is within the configured tolerance, frontend applies a temporary `scanned` class to highlight the point.
+    * Point pulse animation and scanned highlight are independent states.

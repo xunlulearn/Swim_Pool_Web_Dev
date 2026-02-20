@@ -801,53 +801,258 @@ class WeatherEngine:
         finally:
             self._lightning_history_refresh_lock.release()
 
+    def _fetch_lightning_payload(self):
+        """Fetch raw lightning payload from NEA or local sample data."""
+        use_sample_data = self._use_sample_data()
+        if use_sample_data:
+            with open(SAMPLE_LIGHTNING_PATH, 'r', encoding='utf-8') as file:
+                return json.load(file), "sample_data", None
+
+        api_key = current_app.config.get('NEA_API_KEY')
+        headers = {'x-api-key': api_key} if api_key else {}
+        response = requests.get(
+            self.LIGHTNING_API_URL,
+            headers=headers,
+            timeout=10,
+        )
+
+        if response.status_code == 403:
+            return None, "live_api", "missing_or_invalid_api_key"
+        if response.status_code != 200:
+            logger.warning(
+                "Lightning API request failed with HTTP %s.",
+                response.status_code,
+            )
+            return None, "live_api", "api_unavailable"
+
+        try:
+            payload = response.json()
+        except ValueError:
+            logger.warning("Lightning API response is not valid JSON.")
+            return None, "live_api", "invalid_response"
+
+        if payload.get('code') != 0:
+            logger.warning(
+                "Lightning API returned error code payload: %s",
+                payload.get('errorMsg'),
+            )
+            return None, "live_api", "api_error_payload"
+
+        return payload, "live_api", None
+
+    @staticmethod
+    def _extract_latest_lightning_readings(payload):
+        records = (payload or {}).get('data', {}).get('records', [])
+        if not records:
+            return [], None
+
+        latest_record = records[0]
+        latest_item = latest_record.get('item') or {}
+        readings = latest_item.get('readings') or []
+        observed_at = latest_record.get('datetime') or latest_record.get('updatedTimestamp')
+        return readings, observed_at
+
+    @staticmethod
+    def _lightning_unavailable_message(error_code):
+        if error_code == "missing_or_invalid_api_key":
+            return "NEA API key missing or invalid."
+        return "Weather data temporarily unavailable."
+
+    def get_lightning_radar_data(self, radius_km=30):
+        """Return the latest lightning points for radar visualization."""
+        try:
+            payload, data_source, error_code = self._fetch_lightning_payload()
+            if error_code:
+                return {
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                    "observation_time_sgt": None,
+                    "center": {
+                        "lat": self.SRC_LAT,
+                        "lng": self.SRC_LON,
+                        "label": "NTU SRC",
+                    },
+                    "radius_km": float(radius_km),
+                    "points": [],
+                    "metrics": {
+                        "nearest_distance_km": None,
+                        "within_radius_count": 0,
+                        "total_valid_count": 0,
+                        "risk_level": "unknown",
+                        "close_threshold_km": self.LIGHTNING_CLOSE_THRESHOLD,
+                        "warn_threshold_km": self.LIGHTNING_WARN_THRESHOLD,
+                    },
+                    "meta": {
+                        "data_source": data_source,
+                        "error": error_code,
+                        "warning": self._lightning_unavailable_message(error_code),
+                    },
+                }
+
+            readings, observed_at = self._extract_latest_lightning_readings(payload)
+            valid_count = 0
+            nearest_distance = float('inf')
+            radius_points = []
+
+            for reading in readings:
+                location = reading.get('location') or {}
+                lat_raw = location.get('latitude')
+                lon_raw = location.get('longitude')
+                if lat_raw is None or lon_raw is None:
+                    continue
+
+                try:
+                    lat = float(lat_raw)
+                    lon = float(lon_raw)
+                except (TypeError, ValueError):
+                    continue
+
+                valid_count += 1
+                distance_km = self.haversine(self.SRC_LAT, self.SRC_LON, lat, lon)
+                if distance_km < nearest_distance:
+                    nearest_distance = distance_km
+
+                if distance_km <= radius_km:
+                    radius_points.append(
+                        {
+                            "lat": lat,
+                            "lng": lon,
+                            "distance_km": round(distance_km, 2),
+                            "type": reading.get('type'),
+                            "datetime": reading.get('datetime'),
+                        }
+                    )
+
+            radius_points.sort(key=lambda point: point["distance_km"])
+            if nearest_distance == float('inf'):
+                risk_level = "clear"
+                nearest_value = None
+            else:
+                nearest_value = round(nearest_distance, 2)
+                if nearest_distance <= self.LIGHTNING_CLOSE_THRESHOLD:
+                    risk_level = "high"
+                elif nearest_distance <= self.LIGHTNING_WARN_THRESHOLD:
+                    risk_level = "warning"
+                elif nearest_distance <= radius_km:
+                    risk_level = "watch"
+                else:
+                    risk_level = "clear"
+
+            warning = None
+            if not readings:
+                warning = "No lightning readings are available in the latest snapshot."
+
+            return {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "observation_time_sgt": observed_at,
+                "center": {
+                    "lat": self.SRC_LAT,
+                    "lng": self.SRC_LON,
+                    "label": "NTU SRC",
+                },
+                "radius_km": float(radius_km),
+                "points": radius_points,
+                "metrics": {
+                    "nearest_distance_km": nearest_value,
+                    "within_radius_count": len(radius_points),
+                    "total_valid_count": valid_count,
+                    "risk_level": risk_level,
+                    "close_threshold_km": self.LIGHTNING_CLOSE_THRESHOLD,
+                    "warn_threshold_km": self.LIGHTNING_WARN_THRESHOLD,
+                },
+                "meta": {
+                    "data_source": data_source,
+                    "error": None,
+                    "warning": warning,
+                },
+            }
+        except requests.exceptions.Timeout:
+            logger.warning("Lightning radar request timeout.")
+            return {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "observation_time_sgt": None,
+                "center": {
+                    "lat": self.SRC_LAT,
+                    "lng": self.SRC_LON,
+                    "label": "NTU SRC",
+                },
+                "radius_km": float(radius_km),
+                "points": [],
+                "metrics": {
+                    "nearest_distance_km": None,
+                    "within_radius_count": 0,
+                    "total_valid_count": 0,
+                    "risk_level": "unknown",
+                    "close_threshold_km": self.LIGHTNING_CLOSE_THRESHOLD,
+                    "warn_threshold_km": self.LIGHTNING_WARN_THRESHOLD,
+                },
+                "meta": {
+                    "data_source": "degraded",
+                    "error": "timeout",
+                    "warning": "Lightning radar request timed out.",
+                },
+            }
+        except requests.exceptions.RequestException:
+            logger.exception("Lightning radar request error.")
+            return {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "observation_time_sgt": None,
+                "center": {
+                    "lat": self.SRC_LAT,
+                    "lng": self.SRC_LON,
+                    "label": "NTU SRC",
+                },
+                "radius_km": float(radius_km),
+                "points": [],
+                "metrics": {
+                    "nearest_distance_km": None,
+                    "within_radius_count": 0,
+                    "total_valid_count": 0,
+                    "risk_level": "unknown",
+                    "close_threshold_km": self.LIGHTNING_CLOSE_THRESHOLD,
+                    "warn_threshold_km": self.LIGHTNING_WARN_THRESHOLD,
+                },
+                "meta": {
+                    "data_source": "degraded",
+                    "error": "network_error",
+                    "warning": "Lightning radar request failed due to network error.",
+                },
+            }
+        except Exception:
+            logger.exception("Unexpected weather engine error when building radar data.")
+            return {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "observation_time_sgt": None,
+                "center": {
+                    "lat": self.SRC_LAT,
+                    "lng": self.SRC_LON,
+                    "label": "NTU SRC",
+                },
+                "radius_km": float(radius_km),
+                "points": [],
+                "metrics": {
+                    "nearest_distance_km": None,
+                    "within_radius_count": 0,
+                    "total_valid_count": 0,
+                    "risk_level": "unknown",
+                    "close_threshold_km": self.LIGHTNING_CLOSE_THRESHOLD,
+                    "warn_threshold_km": self.LIGHTNING_WARN_THRESHOLD,
+                },
+                "meta": {
+                    "data_source": "degraded",
+                    "error": "system_error",
+                    "warning": "Lightning radar is temporarily unavailable.",
+                },
+            }
+
     def get_lightning_status(self):
         """Fetch lightning points and return nearest distance + count."""
         try:
-            use_sample_data = self._use_sample_data()
-
-            if use_sample_data:
-                with open(SAMPLE_LIGHTNING_PATH, 'r', encoding='utf-8') as file:
-                    data = json.load(file)
-            else:
-                api_key = current_app.config.get('NEA_API_KEY')
-                headers = {'x-api-key': api_key} if api_key else {}
-
-                response = requests.get(
-                    self.LIGHTNING_API_URL,
-                    headers=headers,
-                    timeout=10,
-                )
-
-                if response.status_code == 403:
-                    return (
-                        PoolStatus.AMBER,
-                        "NEA API key missing or invalid.",
-                        {"error": "missing_or_invalid_api_key"},
-                    )
-
-                if response.status_code != 200:
-                    logger.warning(
-                        "Lightning API request failed with HTTP %s.",
-                        response.status_code,
-                    )
-                    return (
-                        PoolStatus.AMBER,
-                        "Weather data temporarily unavailable.",
-                        {"error": "api_unavailable"},
-                    )
-
-                data = response.json()
-
-            if data.get('code') != 0:
-                logger.warning(
-                    "Lightning API returned error code payload: %s",
-                    data.get('errorMsg'),
-                )
+            data, data_source, error_code = self._fetch_lightning_payload()
+            if error_code:
                 return (
                     PoolStatus.AMBER,
-                    "Weather data temporarily unavailable.",
-                    {"error": "api_error_payload"},
+                    self._lightning_unavailable_message(error_code),
+                    {"error": error_code},
                 )
 
             records = data.get('data', {}).get('records', [])
@@ -894,7 +1099,7 @@ class WeatherEngine:
                 else 999.0,
                 "lightning_count": lightning_count,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
-                "data_source": "sample_data" if use_sample_data else "live_api",
+                "data_source": data_source,
             }
 
             return status, message, details
