@@ -39,21 +39,25 @@ The system determines the pool status based on the following **Priority Order** 
 * **Status**: **OPEN** (Message: "Pool Likely Open").
 
 ## Update Frequency
-* **Weather Polling**: Every 1 minute for status card, lightning trend panel, and radar panel (synchronized frontend cadence).
+* **Backend Lightning Collection**: Every 2 minutes by default (`LIGHTNING_COLLECTOR_INTERVAL_SECONDS=120`) via a background collector, independent of page visits.
+* **Frontend Refresh**: Every 1 minute for status card, lightning trend panel, and radar panel (synchronized UI cadence).
 * **User Reports (Feed Refresh)**: Frontend polling every 1 minute.
 
 ## Lightning History API (Trend Panel)
 * **Endpoint**: `GET /weather/lightning-history`
 * **Purpose**: Returns chart-ready lightning counts around NTU SRC for frontend trend rendering.
+* **Data Basis**: Reads from persisted table `lightning_history_snapshots` as source of truth.
 * **Consistency Rule**: The most recent chart point is aligned with the shared latest lightning snapshot used by status and radar endpoints.
 * **Distance Options**: `15 km` and `30 km`.
 * **Time Windows**:
-    * `20m`: one bar per API snapshot.
-    * `1h`: one bar per API snapshot.
-    * `12h`: fixed 60 bars (time bins) for consistent layout.
+    * `20m`: one bar per persisted snapshot, with explicit window start/end boundary points to keep exact 20-minute span.
+    * `1h`: one bar per persisted snapshot, with explicit window start/end boundary points to keep exact 1-hour span.
+    * `12h`: fixed 60 time bins plus one explicit window-start anchor (61 plotted labels/bars) to keep exact 12-hour span.
+* **Visualization Contract**:
+    * Bar chart only (no smoothing/fitted line overlay).
 * **Response Metadata**:
     * Includes coverage, truncation, and error hints for partial upstream data.
-    * `data_source` indicates `live_api`, `sample_data`, or degraded fallback.
+    * `data_source` indicates `persisted_store`, `live_api`, `sample_data`, or degraded fallback.
 
 ## Lightning Radar API (Radar Panel)
 * **Endpoint**: `GET /weather/lightning-radar`

@@ -103,12 +103,39 @@ def create_app(config_name=None):
         db.session.commit()
         app.logger.info('Auto-migration applied for post/comment image columns.')
 
+    def ensure_lightning_history_table():
+        from .models.lightning_history import LightningHistorySnapshot
+
+        LightningHistorySnapshot.__table__.create(bind=db.engine, checkfirst=True)
+        inspector = inspect(db.engine)
+        existing_columns = {
+            col['name'] for col in inspector.get_columns(LightningHistorySnapshot.__tablename__)
+        }
+        if 'points_30km_json' not in existing_columns:
+            db.session.execute(
+                text(
+                    "ALTER TABLE lightning_history_snapshots "
+                    "ADD COLUMN points_30km_json TEXT"
+                )
+            )
+            db.session.commit()
+        if 'source_record_json' not in existing_columns:
+            db.session.execute(
+                text(
+                    "ALTER TABLE lightning_history_snapshots "
+                    "ADD COLUMN source_record_json TEXT"
+                )
+            )
+            db.session.commit()
+        app.logger.info('Ensured lightning history snapshot table exists.')
+
     with app.app_context():
         try:
             ensure_image_columns()
+            ensure_lightning_history_table()
         except Exception:
             db.session.rollback()
-            app.logger.exception('Failed to auto-migrate image columns for posts/comments.')
+            app.logger.exception('Failed to auto-migrate database schema.')
 
     def csrf_error_response():
         if request.path.startswith('/api/') or request.is_json:
@@ -180,6 +207,9 @@ def create_app(config_name=None):
 
     from .blueprints.chatbot import chatbot_bp
     app.register_blueprint(chatbot_bp)
+
+    from .services.lightning_collector import maybe_start_lightning_collector
+    maybe_start_lightning_collector(app)
 
     @app.route('/')
     def index():

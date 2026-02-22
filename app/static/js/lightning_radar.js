@@ -2,8 +2,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const RADAR_ENDPOINT = '/weather/lightning-radar';
 
     const CONFIG = {
-        ntuLat: 1.3483,
-        ntuLng: 103.6831,
+        ntuLat: 1.349383588,
+        ntuLng: 103.6877553,
         scale: 1484.27,
         radarSize: 800,
         scanSpeed: 1.5,
@@ -115,6 +115,22 @@ document.addEventListener('DOMContentLoaded', () => {
             x: centerPx + dx,
             y: centerPx + dy,
         };
+    }
+
+    function syncRadarGeometryFromPayload(payload) {
+        const centerLat = toNumber(payload?.center?.lat);
+        const centerLng = toNumber(payload?.center?.lng);
+        const radiusKm = toNumber(payload?.radius_km);
+
+        if (centerLat !== null) {
+            CONFIG.ntuLat = centerLat;
+        }
+        if (centerLng !== null) {
+            CONFIG.ntuLng = centerLng;
+        }
+        if (radiusKm !== null && radiusKm > 0) {
+            CONFIG.scale = (centerPx * 111.32) / radiusKm;
+        }
     }
 
     function getRenderScale() {
@@ -262,8 +278,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             activeLightningPoints.push({ x: pixel.x, y: pixel.y, el: pointEl });
         });
-
-        ui.count.textContent = String(activeLightningPoints.length);
+        return activeLightningPoints.length;
     }
 
     async function fetchRadarData() {
@@ -276,11 +291,16 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const payload = await response.json();
+            syncRadarGeometryFromPayload(payload);
             const strikes = Array.isArray(payload?.points) ? payload.points : [];
             latestStrikes = strikes;
-            renderPoints(latestStrikes);
+            const renderedCount = renderPoints(latestStrikes);
+            const withinRadiusCount = toNumber(payload?.metrics?.within_radius_count);
 
             ui.status.textContent = 'System Status: Tracking Active';
+            ui.count.textContent = withinRadiusCount !== null
+                ? String(Math.round(withinRadiusCount))
+                : String(renderedCount);
             ui.updated.textContent = `Snapshot time: ${formatSnapshotTime(payload?.observation_time_sgt)}`;
             ui.nearest.textContent = formatDistance(payload?.metrics?.nearest_distance_km);
             applyRiskLevel(payload?.metrics?.risk_level);

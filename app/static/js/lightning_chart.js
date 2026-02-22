@@ -142,6 +142,15 @@ document.addEventListener('DOMContentLoaded', () => {
         return gradient;
     }
 
+    function getXAxisTickStep(labelCount) {
+        const safeCount = Number(labelCount) || 0;
+        const maxVisible = state.window === '12h' ? 8 : 10;
+        if (safeCount <= maxVisible) {
+            return 1;
+        }
+        return Math.max(1, Math.ceil((safeCount - 1) / maxVisible));
+    }
+
     function renderSummary(windowData, rawSeries) {
         if (!windowData) {
             ui.summary.textContent = 'No lightning trend data available.';
@@ -183,6 +192,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const labels = Array.isArray(windowData.labels) ? windowData.labels : [];
         const rawSeries = getActiveSeries(windowData);
         const colorConfig = getColorConfig();
+        const xTickStep = getXAxisTickStep(labels.length);
 
         const chartConfig = {
             type: 'bar',
@@ -196,28 +206,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         borderWidth: 1.2,
                         borderRadius: 6,
                         borderSkipped: false,
-                        categoryPercentage: state.window === '20m' ? 0.66 : 0.86,
-                        barPercentage: state.window === '20m' ? 0.72 : 0.9,
-                        maxBarThickness: state.window === '20m' ? 14 : 24,
+                        categoryPercentage: state.window === '20m' ? 0.99 : 0.86,
+                        barPercentage: state.window === '20m' ? 1 : 0.9,
+                        maxBarThickness: state.window === '20m' ? 32 : 24,
                         backgroundColor: (context) => buildBarGradient(
                             context.chart,
                             colorConfig.fillStart,
                             colorConfig.fillEnd
                         ),
-                    },
-                    {
-                        type: 'line',
-                        label: `${getDistanceLabel()} smooth curve`,
-                        data: rawSeries,
-                        borderColor: colorConfig.line,
-                        borderWidth: 2,
-                        tension: 0.38,
-                        cubicInterpolationMode: 'monotone',
-                        pointRadius: 0,
-                        pointHoverRadius: 3,
-                        pointHitRadius: 8,
-                        pointBackgroundColor: colorConfig.line,
-                        fill: false,
                     },
                 ],
             },
@@ -266,8 +262,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         },
                         ticks: {
                             maxRotation: 0,
-                            autoSkip: true,
-                            maxTicksLimit: state.window === '12h' ? 8 : 10,
+                            autoSkip: false,
+                            callback(value, index, ticks) {
+                                const lastIndex = ticks.length - 1;
+                                if (index === 0 || index === lastIndex || index % xTickStep === 0) {
+                                    return this.getLabelForValue(value);
+                                }
+                                return '';
+                            },
                         },
                         grid: {
                             display: false,

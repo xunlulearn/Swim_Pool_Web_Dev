@@ -9,6 +9,7 @@ from threading import Lock
 
 import requests
 from flask import current_app, has_app_context
+from sqlalchemy.exc import IntegrityError
 
 # Legacy toggle kept for backward compatibility; runtime selection uses
 # `USE_SAMPLE_WEATHER_DATA` in app config.
@@ -310,6 +311,49 @@ class WeatherEngine:
             logger.exception("Failed to evaluate community consensus.")
             return None
 
+    @staticmethod
+    def _ensure_utc_aware(dt_value):
+        if dt_value is None:
+            return None
+        if dt_value.tzinfo is None:
+            return dt_value.replace(tzinfo=timezone.utc)
+        return dt_value.astimezone(timezone.utc)
+
+    def _get_recent_lightning_alert_time(self, now_utc):
+        cutoff_utc = now_utc - timedelta(minutes=45)
+        memory_alert = self._ensure_utc_aware(self.last_lightning_alert_time)
+        if memory_alert is not None and memory_alert < cutoff_utc:
+            memory_alert = None
+
+        persisted_alert = None
+        if has_app_context():
+            try:
+                from app.models.lightning_history import LightningHistorySnapshot
+
+                row = (
+                    LightningHistorySnapshot.query.filter(
+                        LightningHistorySnapshot.observed_at_utc
+                        >= cutoff_utc.replace(tzinfo=None),
+                        LightningHistorySnapshot.within_15km_count > 0,
+                    )
+                    .order_by(LightningHistorySnapshot.observed_at_utc.desc())
+                    .first()
+                )
+                if row is not None:
+                    persisted_alert = self._ensure_utc_aware(row.observed_at_utc)
+            except Exception:
+                try:
+                    from app.extensions import db
+                    db.session.rollback()
+                except Exception:
+                    pass
+                logger.exception("Failed to resolve recent lightning alert time from persisted store.")
+
+        candidates = [item for item in [memory_alert, persisted_alert] if item is not None]
+        if not candidates:
+            return None
+        return max(candidates)
+
     def get_overall_status(self):
         """Main status resolver with short cache to reduce upstream pressure."""
         cached = self._get_cached_overall_status()
@@ -401,11 +445,17 @@ class WeatherEngine:
             self._set_cached_overall_status(PoolStatus.AMBER, message, details)
             return PoolStatus.AMBER, message, details
 
+        recent_lightning_alert = self._get_recent_lightning_alert_time(now)
         if has_lightning:
+            recent_lightning_alert = now
             self.last_lightning_alert_time = now
+        elif recent_lightning_alert is not None:
+            self.last_lightning_alert_time = recent_lightning_alert
+        else:
+            self.last_lightning_alert_time = None
 
-        if self.last_lightning_alert_time:
-            time_since_alert = (now - self.last_lightning_alert_time).total_seconds() / 60
+        if recent_lightning_alert:
+            time_since_alert = (now - recent_lightning_alert).total_seconds() / 60
             if time_since_alert <= 45:
                 remaining = 45 - int(time_since_alert)
                 if has_lightning:
@@ -422,7 +472,7 @@ class WeatherEngine:
                     **base_metrics,
                     "reason": "lightning",
                     "distance": lightning_dist,
-                    "last_alert": self.last_lightning_alert_time.isoformat(),
+                    "last_alert": recent_lightning_alert.isoformat(),
                 }
                 self._set_cached_overall_status(PoolStatus.RED, message, details)
                 return PoolStatus.RED, message, details
@@ -647,7 +697,346 @@ class WeatherEngine:
 
         return counts_15km, counts_30km, int(bin_seconds)
 
-    def _build_lightning_history_charts(self, records, now_sgt, latest_snapshot=None):
+    @staticmethod
+    def _pad_window_boundaries(points, window_start, window_end):
+        padded = list(points or [])
+        has_start = any(point.get("time") == window_start for point in padded)
+        has_end = any(point.get("time") == window_end for point in padded)
+
+        if not has_start:
+            padded.append(
+                {
+                    "time": window_start,
+                    "counts_15km": 0,
+                    "counts_30km": 0,
+                }
+            )
+        if not has_end:
+            padded.append(
+                {
+                    "time": window_end,
+                    "counts_15km": 0,
+                    "counts_30km": 0,
+                }
+            )
+
+        padded.sort(key=lambda point: point["time"])
+        return padded
+
+    def _extract_snapshot_points_from_records(self, records, now_sgt=None, cutoff_sgt=None):
+        snapshot_points = []
+
+        for record in records:
+            record_time = self._parse_nea_datetime(record.get('datetime'))
+            if record_time is None:
+                continue
+            if now_sgt and record_time > now_sgt:
+                continue
+            if cutoff_sgt and record_time < cutoff_sgt:
+                continue
+
+            readings = (record.get('item') or {}).get('readings') or []
+            summary = self._summarize_lightning_readings(readings)
+            snapshot_points.append(
+                {
+                    "time": record_time,
+                    "counts_15km": int(summary["within_15km_count"]),
+                    "counts_30km": int(summary["within_30km_count"]),
+                    "total_valid_count": int(summary["total_valid_count"]),
+                    "nearest_distance_km": summary["nearest_distance_km"],
+                    "points_30km_json": json.dumps(
+                        summary.get("points_within_30km") or [],
+                        ensure_ascii=False,
+                    ),
+                    "source_record_json": json.dumps(record, ensure_ascii=False),
+                }
+            )
+
+        snapshot_points.sort(key=lambda point: point["time"])
+        return snapshot_points
+
+    @staticmethod
+    def _to_utc_naive(dt_value):
+        if dt_value is None:
+            return None
+        if dt_value.tzinfo is None:
+            return dt_value
+        return dt_value.astimezone(timezone.utc).replace(tzinfo=None)
+
+    def _persist_lightning_snapshot_points(self, snapshot_points, data_source="live_api"):
+        if not has_app_context() or not snapshot_points:
+            return 0
+
+        try:
+            from app.extensions import db
+            from app.models.lightning_history import LightningHistorySnapshot
+
+            normalized = {}
+            for point in snapshot_points:
+                point_time = point.get("time")
+                point_time_utc = self._to_utc_naive(point_time)
+                if point_time_utc is None:
+                    continue
+
+                if point_time is not None and point_time.tzinfo is not None:
+                    point_time_sgt = point_time.astimezone(self.SGT)
+                else:
+                    point_time_sgt = point_time
+
+                normalized[point_time_utc] = {
+                    "observed_at_sgt": (
+                        point_time_sgt.isoformat()
+                        if point_time_sgt is not None
+                        else point_time_utc.isoformat()
+                    ),
+                    "within_15km_count": int(point.get("counts_15km") or 0),
+                    "within_30km_count": int(point.get("counts_30km") or 0),
+                    "total_valid_count": int(point.get("total_valid_count") or 0),
+                    "nearest_distance_km": self._to_float(point.get("nearest_distance_km")),
+                    "data_source": str(data_source or "live_api"),
+                    "points_30km_json": point.get("points_30km_json"),
+                    "source_record_json": point.get("source_record_json"),
+                }
+
+            if not normalized:
+                return 0
+
+            observed_keys = list(normalized.keys())
+            existing_rows = (
+                LightningHistorySnapshot.query.filter(
+                    LightningHistorySnapshot.observed_at_utc.in_(observed_keys)
+                ).all()
+            )
+            existing_map = {row.observed_at_utc: row for row in existing_rows}
+
+            written_count = 0
+            for observed_at_utc, payload in normalized.items():
+                row = existing_map.get(observed_at_utc)
+                if row is None:
+                    row = LightningHistorySnapshot(observed_at_utc=observed_at_utc)
+                    db.session.add(row)
+
+                row.observed_at_sgt = payload["observed_at_sgt"]
+                row.within_15km_count = payload["within_15km_count"]
+                row.within_30km_count = payload["within_30km_count"]
+                row.total_valid_count = payload["total_valid_count"]
+                row.nearest_distance_km = payload["nearest_distance_km"]
+                row.data_source = payload["data_source"]
+                if payload["points_30km_json"] is not None:
+                    row.points_30km_json = payload["points_30km_json"]
+                if payload["source_record_json"] is not None:
+                    row.source_record_json = payload["source_record_json"]
+                written_count += 1
+
+            try:
+                db.session.commit()
+                return written_count
+            except IntegrityError:
+                db.session.rollback()
+                existing_rows = (
+                    LightningHistorySnapshot.query.filter(
+                        LightningHistorySnapshot.observed_at_utc.in_(observed_keys)
+                    ).all()
+                )
+                existing_map = {row.observed_at_utc: row for row in existing_rows}
+                for observed_at_utc, payload in normalized.items():
+                    row = existing_map.get(observed_at_utc)
+                    if row is None:
+                        row = LightningHistorySnapshot(observed_at_utc=observed_at_utc)
+                        db.session.add(row)
+                    row.observed_at_sgt = payload["observed_at_sgt"]
+                    row.within_15km_count = payload["within_15km_count"]
+                    row.within_30km_count = payload["within_30km_count"]
+                    row.total_valid_count = payload["total_valid_count"]
+                    row.nearest_distance_km = payload["nearest_distance_km"]
+                    row.data_source = payload["data_source"]
+                    if payload["points_30km_json"] is not None:
+                        row.points_30km_json = payload["points_30km_json"]
+                    if payload["source_record_json"] is not None:
+                        row.source_record_json = payload["source_record_json"]
+                db.session.commit()
+                return written_count
+        except Exception:
+            try:
+                from app.extensions import db
+                db.session.rollback()
+            except Exception:
+                pass
+            logger.exception("Failed to persist lightning snapshot points.")
+            return 0
+
+    def _persist_lightning_snapshot_metrics(self, snapshot):
+        if not snapshot or snapshot.get("error"):
+            return 0
+
+        observed_at = self._parse_nea_datetime(snapshot.get("observation_time_sgt"))
+        if observed_at is None:
+            return 0
+
+        metrics = snapshot.get("metrics") or {}
+        points_within_30km = [
+            point
+            for point in (snapshot.get("points") or [])
+            if self._to_float((point or {}).get("distance_km")) is not None
+            and float(point.get("distance_km")) <= 30
+        ]
+        point = {
+            "time": observed_at,
+            "counts_15km": int(metrics.get("within_15km_count") or 0),
+            "counts_30km": int(metrics.get("within_30km_count") or 0),
+            "total_valid_count": int(metrics.get("total_valid_count") or 0),
+            "nearest_distance_km": self._to_float(metrics.get("nearest_distance_km")),
+            "points_30km_json": json.dumps(points_within_30km, ensure_ascii=False),
+        }
+        return self._persist_lightning_snapshot_points(
+            [point],
+            data_source=snapshot.get("data_source", "live_api"),
+        )
+
+    def _load_persisted_lightning_snapshot_points(self, now_sgt, cutoff_sgt):
+        if not has_app_context():
+            return []
+
+        try:
+            from app.models.lightning_history import LightningHistorySnapshot
+
+            cutoff_utc = self._to_utc_naive(cutoff_sgt)
+            now_utc = self._to_utc_naive(now_sgt)
+
+            rows = (
+                LightningHistorySnapshot.query.filter(
+                    LightningHistorySnapshot.observed_at_utc >= cutoff_utc,
+                    LightningHistorySnapshot.observed_at_utc <= now_utc,
+                )
+                .order_by(LightningHistorySnapshot.observed_at_utc.asc())
+                .all()
+            )
+
+            points = []
+            for row in rows:
+                observed_at_utc = row.observed_at_utc
+                if observed_at_utc.tzinfo is None:
+                    observed_at_utc = observed_at_utc.replace(tzinfo=timezone.utc)
+                else:
+                    observed_at_utc = observed_at_utc.astimezone(timezone.utc)
+
+                point_time = observed_at_utc.astimezone(self.SGT)
+                points.append(
+                    {
+                        "time": point_time,
+                        "counts_15km": int(row.within_15km_count or 0),
+                        "counts_30km": int(row.within_30km_count or 0),
+                        "total_valid_count": int(row.total_valid_count or 0),
+                        "nearest_distance_km": self._to_float(row.nearest_distance_km),
+                    }
+                )
+
+            return points
+        except Exception:
+            try:
+                from app.extensions import db
+                db.session.rollback()
+            except Exception:
+                pass
+            logger.exception("Failed to load persisted lightning snapshot points.")
+            return []
+
+    @staticmethod
+    def _parse_json_list(raw_value):
+        if not raw_value:
+            return []
+        try:
+            parsed = json.loads(raw_value)
+        except (TypeError, ValueError):
+            return []
+        if not isinstance(parsed, list):
+            return []
+        return parsed
+
+    def _build_lightning_snapshot_from_persisted_row(self, row):
+        if row is None:
+            return None
+
+        points_30km = self._parse_json_list(getattr(row, "points_30km_json", None))
+        if not points_30km:
+            source_record = getattr(row, "source_record_json", None)
+            if source_record:
+                try:
+                    parsed_record = json.loads(source_record)
+                    readings = (parsed_record.get("item") or {}).get("readings") or []
+                    points_30km = self._summarize_lightning_readings(readings)[
+                        "points_within_30km"
+                    ]
+                except (TypeError, ValueError):
+                    points_30km = []
+
+        nearest_value = self._to_float(getattr(row, "nearest_distance_km", None))
+        if nearest_value is None:
+            risk_level = "clear"
+        elif nearest_value <= self.LIGHTNING_CLOSE_THRESHOLD:
+            risk_level = "high"
+        elif nearest_value <= self.LIGHTNING_WARN_THRESHOLD:
+            risk_level = "warning"
+        elif nearest_value <= 30:
+            risk_level = "watch"
+        else:
+            risk_level = "clear"
+
+        observed_at_utc = getattr(row, "observed_at_utc", None)
+        generated_at = None
+        if observed_at_utc is not None:
+            if observed_at_utc.tzinfo is None:
+                observed_at_utc = observed_at_utc.replace(tzinfo=timezone.utc)
+            generated_at = observed_at_utc.isoformat()
+
+        return {
+            "generated_at": generated_at or datetime.now(timezone.utc).isoformat(),
+            "observation_time_sgt": getattr(row, "observed_at_sgt", None),
+            "data_source": "persisted_store",
+            "error": None,
+            "source_error": None,
+            "warning": None,
+            "stale_cache": False,
+            "metrics": {
+                "nearest_distance_km": nearest_value,
+                "within_15km_count": int(getattr(row, "within_15km_count", 0) or 0),
+                "within_30km_count": int(getattr(row, "within_30km_count", 0) or 0),
+                "total_valid_count": int(getattr(row, "total_valid_count", 0) or 0),
+                "risk_level": risk_level,
+                "close_threshold_km": self.LIGHTNING_CLOSE_THRESHOLD,
+                "warn_threshold_km": self.LIGHTNING_WARN_THRESHOLD,
+            },
+            "points": points_30km,
+        }
+
+    def _load_latest_persisted_lightning_snapshot(self):
+        if not has_app_context():
+            return None
+
+        try:
+            from app.models.lightning_history import LightningHistorySnapshot
+
+            row = (
+                LightningHistorySnapshot.query.order_by(
+                    LightningHistorySnapshot.observed_at_utc.desc()
+                ).first()
+            )
+            return self._build_lightning_snapshot_from_persisted_row(row)
+        except Exception:
+            try:
+                from app.extensions import db
+                db.session.rollback()
+            except Exception:
+                pass
+            logger.exception("Failed to load latest persisted lightning snapshot.")
+            return None
+
+    def _build_lightning_history_charts_from_points(
+        self,
+        snapshot_points,
+        now_sgt,
+        latest_snapshot=None,
+    ):
         window_specs = {
             "20m": {
                 "duration": timedelta(minutes=20),
@@ -668,50 +1057,31 @@ class WeatherEngine:
         }
 
         cutoff_sgt = now_sgt - timedelta(hours=12)
-        snapshot_points = []
+        normalized_points = []
         oldest_counted_point = None
 
-        for record in records:
-            record_time = self._parse_nea_datetime(record.get('datetime'))
-            if record_time is None or record_time > now_sgt or record_time < cutoff_sgt:
+        for point in snapshot_points or []:
+            point_time = point.get("time")
+            if point_time is None:
                 continue
 
-            readings = (record.get('item') or {}).get('readings') or []
-            count_15km = 0
-            count_30km = 0
+            if point_time.tzinfo is None:
+                point_time = point_time.replace(tzinfo=self.SGT)
+            else:
+                point_time = point_time.astimezone(self.SGT)
 
-            for reading in readings:
-                location = reading.get('location') or {}
-                lat_raw = location.get('latitude')
-                lon_raw = location.get('longitude')
-                if lat_raw is None or lon_raw is None:
-                    continue
+            if point_time > now_sgt or point_time < cutoff_sgt:
+                continue
 
-                try:
-                    lat = float(lat_raw)
-                    lon = float(lon_raw)
-                except (TypeError, ValueError):
-                    continue
-
-                distance_km = self.haversine(self.SRC_LAT, self.SRC_LON, lat, lon)
-                if distance_km <= 30:
-                    count_30km += 1
-                    if distance_km <= 15:
-                        count_15km += 1
-
-            if count_30km > 0:
-                if oldest_counted_point is None or record_time < oldest_counted_point:
-                    oldest_counted_point = record_time
-
-            snapshot_points.append(
+            normalized_points.append(
                 {
-                    "time": record_time,
-                    "counts_15km": count_15km,
-                    "counts_30km": count_30km,
+                    "time": point_time,
+                    "counts_15km": int(point.get("counts_15km") or 0),
+                    "counts_30km": int(point.get("counts_30km") or 0),
                 }
             )
 
-        snapshot_points.sort(key=lambda point: point["time"])
+        normalized_points.sort(key=lambda item: item["time"])
 
         latest_metrics = (latest_snapshot or {}).get("metrics") or {}
         latest_observed_at = self._parse_nea_datetime(
@@ -725,25 +1095,33 @@ class WeatherEngine:
             }
 
             merged = False
-            for index, point in enumerate(snapshot_points):
+            for index, point in enumerate(normalized_points):
                 if point["time"] == latest_observed_at:
-                    snapshot_points[index] = override_point
+                    normalized_points[index] = override_point
                     merged = True
                     break
             if not merged:
-                snapshot_points.append(override_point)
-                snapshot_points.sort(key=lambda point: point["time"])
+                normalized_points.append(override_point)
+                normalized_points.sort(key=lambda point: point["time"])
+
+        for point in normalized_points:
+            if int(point.get("counts_30km") or 0) <= 0:
+                continue
+            point_time = point.get("time")
+            if oldest_counted_point is None or point_time < oldest_counted_point:
+                oldest_counted_point = point_time
 
         charts = {}
         for window_key, spec in window_specs.items():
             window_start = now_sgt - spec["duration"]
-            points = [
-                point for point in snapshot_points if point["time"] >= window_start
+            window_points = [
+                point for point in normalized_points if point["time"] >= window_start
             ]
+            raw_snapshot_count = len(window_points)
             if "target_bins" in spec:
                 target_bins = int(spec["target_bins"])
                 counts_15km, counts_30km, bin_seconds = self._aggregate_points_to_fixed_bins(
-                    points,
+                    window_points,
                     window_start,
                     spec["duration"],
                     target_bins,
@@ -754,7 +1132,11 @@ class WeatherEngine:
                     )
                     for index in range(target_bins)
                 ]
+                counts_15km = [0] + counts_15km
+                counts_30km = [0] + counts_30km
+                labels = [window_start.strftime(spec["label_format"])] + labels
             else:
+                points = self._pad_window_boundaries(window_points, window_start, now_sgt)
                 counts_15km = [int(point["counts_15km"]) for point in points]
                 counts_30km = [int(point["counts_30km"]) for point in points]
                 labels = [point["time"].strftime(spec["label_format"]) for point in points]
@@ -768,11 +1150,24 @@ class WeatherEngine:
                     "15km": int(sum(counts_15km)),
                     "30km": int(sum(counts_30km)),
                 },
-                "snapshot_count": len(points),
+                "snapshot_count": raw_snapshot_count,
                 "bar_count": len(labels),
             }
 
         return charts, oldest_counted_point
+
+    def _build_lightning_history_charts(self, records, now_sgt, latest_snapshot=None):
+        cutoff_sgt = now_sgt - timedelta(hours=12)
+        snapshot_points = self._extract_snapshot_points_from_records(
+            records,
+            now_sgt=now_sgt,
+            cutoff_sgt=cutoff_sgt,
+        )
+        return self._build_lightning_history_charts_from_points(
+            snapshot_points,
+            now_sgt,
+            latest_snapshot=latest_snapshot,
+        )
 
     def get_lightning_history(self):
         cached = self._get_cached_lightning_history()
@@ -782,19 +1177,11 @@ class WeatherEngine:
         lightning_snapshot = self.get_lightning_snapshot()
 
         if not self._lightning_history_refresh_lock.acquire(blocking=False):
-            stale = self._get_stale_cached_lightning_history()
-            if stale is not None:
-                stale_meta = stale.setdefault("metadata", {})
-                stale_meta["stale_cache"] = True
-                stale_meta.setdefault(
-                    "warning",
-                    "Using cached lightning history while refresh is in progress.",
-                )
-                return stale
-
             now_sgt = datetime.now(self.SGT).replace(microsecond=0)
-            charts, _ = self._build_lightning_history_charts(
-                [],
+            cutoff_sgt = now_sgt - timedelta(hours=12)
+            persisted_points = self._load_persisted_lightning_snapshot_points(now_sgt, cutoff_sgt)
+            charts, oldest_counted_point = self._build_lightning_history_charts_from_points(
+                persisted_points,
                 now_sgt,
                 latest_snapshot=lightning_snapshot,
             )
@@ -809,11 +1196,17 @@ class WeatherEngine:
                 "metadata": {
                     "data_source": lightning_snapshot.get("data_source", "degraded"),
                     "requests_made": 0,
-                    "records_loaded": 0,
-                    "coverage_start_sgt": None,
+                    "records_loaded": len(persisted_points),
+                    "coverage_start_sgt": (
+                        persisted_points[0]["time"].isoformat() if persisted_points else None
+                    ),
                     "coverage_end_sgt": now_sgt.isoformat(),
-                    "oldest_counted_point_sgt": None,
-                    "full_12h_coverage": False,
+                    "oldest_counted_point_sgt": (
+                        oldest_counted_point.isoformat() if oldest_counted_point else None
+                    ),
+                    "full_12h_coverage": bool(
+                        persisted_points and persisted_points[0]["time"] <= cutoff_sgt
+                    ),
                     "truncated": False,
                     "rate_limited": False,
                     "error": "refresh_in_progress",
@@ -821,65 +1214,114 @@ class WeatherEngine:
                     "stale_cache": False,
                     "snapshot_stale_cache": bool(lightning_snapshot.get("stale_cache", False)),
                     "snapshot_source_error": lightning_snapshot.get("source_error"),
+                    "history_basis": "persisted_store",
+                    "persisted_records_loaded": len(persisted_points),
+                    "persisted_records_written": 0,
                 },
             }
 
         try:
             now_sgt = datetime.now(self.SGT).replace(microsecond=0)
             cutoff_sgt = now_sgt - timedelta(hours=12)
+            persisted_points = self._load_persisted_lightning_snapshot_points(now_sgt, cutoff_sgt)
+            persisted_written = 0
+            backfill_fetch_meta = None
 
-            records, fetch_meta = self._fetch_lightning_records_for_history(now_sgt, cutoff_sgt)
-            charts, oldest_counted_point = self._build_lightning_history_charts(
-                records,
+            if has_app_context():
+                required_20m_start = now_sgt - timedelta(minutes=20)
+                recent_points = [
+                    point for point in persisted_points if point["time"] >= required_20m_start
+                ]
+                recent_first_time = recent_points[0]["time"] if recent_points else None
+                recent_last_time = recent_points[-1]["time"] if recent_points else None
+                needs_20m_backfill = (
+                    not recent_points
+                    or recent_first_time > (required_20m_start + timedelta(minutes=3))
+                    or recent_last_time < (now_sgt - timedelta(minutes=3))
+                )
+                if needs_20m_backfill:
+                    records, backfill_fetch_meta = self._fetch_lightning_records_for_history(
+                        now_sgt,
+                        cutoff_sgt,
+                    )
+                    api_points = self._extract_snapshot_points_from_records(
+                        records,
+                        now_sgt=now_sgt,
+                        cutoff_sgt=cutoff_sgt,
+                    )
+                    persisted_written += self._persist_lightning_snapshot_points(
+                        api_points,
+                        data_source=(backfill_fetch_meta or {}).get("data_source", "live_api"),
+                    )
+                    persisted_written += self._persist_lightning_snapshot_metrics(lightning_snapshot)
+                    persisted_points = self._load_persisted_lightning_snapshot_points(
+                        now_sgt,
+                        cutoff_sgt,
+                    )
+
+            charts, oldest_counted_point = self._build_lightning_history_charts_from_points(
+                persisted_points,
                 now_sgt,
                 latest_snapshot=lightning_snapshot,
             )
 
-            coverage_start = fetch_meta.get("coverage_start")
+            coverage_start = persisted_points[0]["time"] if persisted_points else None
             full_12h_coverage = bool(coverage_start and coverage_start <= cutoff_sgt)
-            warning = self._format_lightning_history_warning(
-                fetch_meta.get("error"),
-                fetch_meta.get("truncated", False),
-                fetch_meta.get("rate_limited", False),
-            )
-            observation_time_sgt = (
-                lightning_snapshot.get("observation_time_sgt") or now_sgt.isoformat()
-            )
+            warning = None
+            error = None
+            requests_made = 0
+            truncated = False
+            rate_limited = False
+
+            if backfill_fetch_meta:
+                requests_made = int(backfill_fetch_meta.get("request_count") or 0)
+                truncated = bool(backfill_fetch_meta.get("truncated", False))
+                rate_limited = bool(backfill_fetch_meta.get("rate_limited", False))
+                error = backfill_fetch_meta.get("error")
+                warning = self._format_lightning_history_warning(
+                    backfill_fetch_meta.get("error"),
+                    truncated,
+                    rate_limited,
+                )
+
+            if not persisted_points:
+                error = "no_persisted_data"
+                warning = "Lightning history is warming up. Background collector has not stored data yet."
 
             payload = {
                 "generated_at": datetime.now(timezone.utc).isoformat(),
-                "observation_time_sgt": observation_time_sgt,
+                "observation_time_sgt": (
+                    lightning_snapshot.get("observation_time_sgt") or now_sgt.isoformat()
+                ),
                 "distance_options_km": [15, 30],
                 "window_options": ["20m", "1h", "12h"],
                 "charts": charts,
                 "metadata": {
-                    "data_source": fetch_meta.get("data_source", "live_api"),
-                    "requests_made": fetch_meta.get("request_count", 0),
-                    "records_loaded": len(records),
+                    "data_source": (
+                        "persisted_store"
+                        if persisted_points
+                        else (backfill_fetch_meta or {}).get("data_source", "persisted_store")
+                    ),
+                    "requests_made": requests_made,
+                    "records_loaded": len(persisted_points),
                     "coverage_start_sgt": coverage_start.isoformat() if coverage_start else None,
                     "coverage_end_sgt": now_sgt.isoformat(),
                     "oldest_counted_point_sgt": (
                         oldest_counted_point.isoformat() if oldest_counted_point else None
                     ),
                     "full_12h_coverage": full_12h_coverage,
-                    "truncated": bool(fetch_meta.get("truncated", False)),
-                    "rate_limited": bool(fetch_meta.get("rate_limited", False)),
-                    "error": fetch_meta.get("error"),
+                    "truncated": truncated,
+                    "rate_limited": rate_limited,
+                    "error": error,
                     "warning": warning,
                     "stale_cache": False,
                     "snapshot_stale_cache": bool(lightning_snapshot.get("stale_cache", False)),
                     "snapshot_source_error": lightning_snapshot.get("source_error"),
+                    "history_basis": "persisted_store",
+                    "persisted_records_loaded": len(persisted_points),
+                    "persisted_records_written": persisted_written,
                 },
             }
-
-            if payload["metadata"]["error"]:
-                stale = self._get_stale_cached_lightning_history()
-                if stale is not None:
-                    stale_meta = stale.setdefault("metadata", {})
-                    stale_meta["stale_cache"] = True
-                    stale_meta["error"] = payload["metadata"]["error"]
-                    stale_meta["warning"] = warning
-                    return stale
 
             self._set_cached_lightning_history(payload)
             return payload
@@ -971,6 +1413,57 @@ class WeatherEngine:
         except (TypeError, ValueError):
             return None
 
+    def _summarize_lightning_readings(self, readings):
+        points = []
+        points_within_30km = []
+        nearest_distance = None
+        within_15km_count = 0
+        within_30km_count = 0
+        total_valid_count = 0
+
+        for reading in readings:
+            location = reading.get('location') or {}
+            lat = self._to_float(location.get('latitude'))
+            lon = self._to_float(location.get('longitude'))
+            if lat is None or lon is None:
+                continue
+
+            total_valid_count += 1
+            distance_km = self.haversine(self.SRC_LAT, self.SRC_LON, lat, lon)
+            distance_value = round(distance_km, 2)
+
+            if nearest_distance is None or distance_km < nearest_distance:
+                nearest_distance = distance_km
+            if distance_km <= self.LIGHTNING_WARN_THRESHOLD:
+                within_15km_count += 1
+            if distance_km <= 30:
+                within_30km_count += 1
+
+            point_payload = {
+                "lat": lat,
+                "lng": lon,
+                "distance_km": distance_value,
+                "type": reading.get('type'),
+                "datetime": reading.get('datetime'),
+            }
+            points.append(point_payload)
+            if distance_km <= 30:
+                points_within_30km.append(point_payload)
+
+        points.sort(key=lambda point: point["distance_km"])
+        points_within_30km.sort(key=lambda point: point["distance_km"])
+
+        return {
+            "points": points,
+            "points_within_30km": points_within_30km,
+            "nearest_distance_km": (
+                round(nearest_distance, 2) if nearest_distance is not None else None
+            ),
+            "within_15km_count": int(within_15km_count),
+            "within_30km_count": int(within_30km_count),
+            "total_valid_count": int(total_valid_count),
+        }
+
     def _build_stale_lightning_snapshot(self, stale_snapshot, warning, source_error):
         stale = copy.deepcopy(stale_snapshot)
         stale["stale_cache"] = True
@@ -981,41 +1474,13 @@ class WeatherEngine:
 
     def _build_lightning_snapshot_from_payload(self, payload, data_source):
         readings, observed_at = self._extract_latest_lightning_readings(payload)
-        points = []
-        nearest_distance = float('inf')
-        within_15km_count = 0
-        within_30km_count = 0
+        summary = self._summarize_lightning_readings(readings)
+        points = summary["points"]
+        nearest_value = summary["nearest_distance_km"]
+        within_15km_count = summary["within_15km_count"]
+        within_30km_count = summary["within_30km_count"]
+        total_valid_count = summary["total_valid_count"]
 
-        for reading in readings:
-            location = reading.get('location') or {}
-            lat = self._to_float(location.get('latitude'))
-            lon = self._to_float(location.get('longitude'))
-            if lat is None or lon is None:
-                continue
-
-            distance_km = self.haversine(self.SRC_LAT, self.SRC_LON, lat, lon)
-            distance_value = round(distance_km, 2)
-
-            if distance_km < nearest_distance:
-                nearest_distance = distance_km
-            if distance_km <= self.LIGHTNING_WARN_THRESHOLD:
-                within_15km_count += 1
-            if distance_km <= 30:
-                within_30km_count += 1
-
-            points.append(
-                {
-                    "lat": lat,
-                    "lng": lon,
-                    "distance_km": distance_value,
-                    "type": reading.get('type'),
-                    "datetime": reading.get('datetime'),
-                }
-            )
-
-        points.sort(key=lambda point: point["distance_km"])
-
-        nearest_value = None if nearest_distance == float('inf') else round(nearest_distance, 2)
         if nearest_value is None:
             risk_level = "clear"
         elif nearest_value <= self.LIGHTNING_CLOSE_THRESHOLD:
@@ -1045,7 +1510,7 @@ class WeatherEngine:
                 "nearest_distance_km": nearest_value,
                 "within_15km_count": within_15km_count,
                 "within_30km_count": within_30km_count,
-                "total_valid_count": len(points),
+                "total_valid_count": total_valid_count,
                 "risk_level": risk_level,
                 "close_threshold_km": self.LIGHTNING_CLOSE_THRESHOLD,
                 "warn_threshold_km": self.LIGHTNING_WARN_THRESHOLD,
@@ -1053,10 +1518,60 @@ class WeatherEngine:
             "points": points,
         }
 
+    def _fetch_lightning_snapshot_live(self):
+        try:
+            payload, data_source, error_code = self._fetch_lightning_payload()
+        except requests.exceptions.Timeout:
+            logger.warning("Lightning snapshot request timeout.")
+            return self._build_unavailable_lightning_snapshot(
+                "degraded",
+                "timeout",
+                "Lightning snapshot request timed out.",
+            )
+        except requests.exceptions.RequestException:
+            logger.exception("Lightning snapshot request error.")
+            return self._build_unavailable_lightning_snapshot(
+                "degraded",
+                "network_error",
+                "Lightning snapshot request failed due to network error.",
+            )
+
+        if error_code:
+            warning = self._lightning_unavailable_message(error_code)
+            return self._build_unavailable_lightning_snapshot(data_source, error_code, warning)
+
+        snapshot = self._build_lightning_snapshot_from_payload(payload, data_source)
+        self._persist_lightning_snapshot_metrics(snapshot)
+
+        persisted_snapshot = self._load_latest_persisted_lightning_snapshot()
+        if persisted_snapshot is not None:
+            self._set_cached_lightning_snapshot(persisted_snapshot)
+            return persisted_snapshot
+
+        self._set_cached_lightning_snapshot(snapshot)
+        return snapshot
+
+    def collect_and_store_latest_lightning_snapshot(self):
+        if not self._lightning_snapshot_refresh_lock.acquire(blocking=False):
+            return {"ok": False, "reason": "refresh_in_progress"}
+
+        try:
+            snapshot = self._fetch_lightning_snapshot_live()
+            if snapshot.get("error"):
+                return {"ok": False, "reason": snapshot.get("error"), "snapshot": snapshot}
+            return {"ok": True, "snapshot": snapshot}
+        finally:
+            self._lightning_snapshot_refresh_lock.release()
+
     def get_lightning_snapshot(self):
         cached = self._get_cached_lightning_snapshot()
         if cached is not None:
             return cached
+
+        persisted_snapshot = self._load_latest_persisted_lightning_snapshot()
+        if persisted_snapshot is not None:
+            self._set_cached_lightning_snapshot(persisted_snapshot)
+            return persisted_snapshot
 
         if not self._lightning_snapshot_refresh_lock.acquire(blocking=False):
             stale = self._get_stale_cached_lightning_snapshot()
@@ -1066,6 +1581,9 @@ class WeatherEngine:
                     "Using cached lightning snapshot while refresh is in progress.",
                     "refresh_in_progress",
                 )
+            persisted_snapshot = self._load_latest_persisted_lightning_snapshot()
+            if persisted_snapshot is not None:
+                return persisted_snapshot
             return self._build_unavailable_lightning_snapshot(
                 "degraded",
                 "refresh_in_progress",
@@ -1073,50 +1591,20 @@ class WeatherEngine:
             )
 
         try:
-            try:
-                payload, data_source, error_code = self._fetch_lightning_payload()
-            except requests.exceptions.Timeout:
-                logger.warning("Lightning snapshot request timeout.")
-                stale = self._get_stale_cached_lightning_snapshot()
-                if stale is not None:
-                    return self._build_stale_lightning_snapshot(
-                        stale,
-                        "Using cached lightning snapshot due to upstream timeout.",
-                        "timeout",
-                    )
-                return self._build_unavailable_lightning_snapshot(
-                    "degraded",
-                    "timeout",
-                    "Lightning snapshot request timed out.",
-                )
-            except requests.exceptions.RequestException:
-                logger.exception("Lightning snapshot request error.")
-                stale = self._get_stale_cached_lightning_snapshot()
-                if stale is not None:
-                    return self._build_stale_lightning_snapshot(
-                        stale,
-                        "Using cached lightning snapshot due to network error.",
-                        "network_error",
-                    )
-                return self._build_unavailable_lightning_snapshot(
-                    "degraded",
-                    "network_error",
-                    "Lightning snapshot request failed due to network error.",
-                )
+            persisted_snapshot = self._load_latest_persisted_lightning_snapshot()
+            if persisted_snapshot is not None:
+                self._set_cached_lightning_snapshot(persisted_snapshot)
+                return persisted_snapshot
 
-            if error_code:
+            snapshot = self._fetch_lightning_snapshot_live()
+            if snapshot.get("error"):
                 stale = self._get_stale_cached_lightning_snapshot()
-                warning = self._lightning_unavailable_message(error_code)
                 if stale is not None:
                     return self._build_stale_lightning_snapshot(
                         stale,
-                        f"Using cached lightning snapshot ({warning})",
-                        error_code,
+                        f"Using cached lightning snapshot ({snapshot.get('warning')})",
+                        snapshot.get("error"),
                     )
-                return self._build_unavailable_lightning_snapshot(data_source, error_code, warning)
-
-            snapshot = self._build_lightning_snapshot_from_payload(payload, data_source)
-            self._set_cached_lightning_snapshot(snapshot)
             return snapshot
         except Exception:
             logger.exception("Unexpected weather engine error when building lightning snapshot.")

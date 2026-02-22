@@ -3,7 +3,9 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app import create_app
-from app.services.weather_engine import WeatherEngine
+from app.extensions import db
+from app.models.lightning_history import LightningHistorySnapshot
+from app.services.weather_engine import PoolStatus, WeatherEngine
 
 
 @pytest.fixture
@@ -86,10 +88,10 @@ def test_build_lightning_history_charts_counts_by_radius_and_window():
     assert sum(charts["1h"]["counts_30km"]) == 2
 
     assert charts["12h"]["snapshot_count"] == 4
-    assert charts["12h"]["bar_count"] == 60
-    assert len(charts["12h"]["labels"]) == 60
-    assert len(charts["12h"]["counts_15km"]) == 60
-    assert len(charts["12h"]["counts_30km"]) == 60
+    assert charts["12h"]["bar_count"] == 61
+    assert len(charts["12h"]["labels"]) == 61
+    assert len(charts["12h"]["counts_15km"]) == 61
+    assert len(charts["12h"]["counts_30km"]) == 61
     assert sum(charts["12h"]["counts_15km"]) == 1
     assert sum(charts["12h"]["counts_30km"]) == 3
 
@@ -145,3 +147,135 @@ def test_lightning_history_endpoint_contract(client, monkeypatch):
     assert body["distance_options_km"] == [15, 30]
     assert body["window_options"] == ["20m", "1h", "12h"]
     assert "20m" in body["charts"]
+
+
+def test_lightning_history_uses_persisted_store_when_live_fetch_is_limited(app, monkeypatch):
+    engine = WeatherEngine()
+    now_sgt = datetime.now(timezone(timedelta(hours=8))).replace(microsecond=0)
+    observation_time = (now_sgt - timedelta(minutes=2)).replace(microsecond=0)
+    record = {
+        "datetime": observation_time.isoformat(),
+        "item": {
+            "readings": [
+                {"location": {"latitude": "1.349383588", "longitude": "103.6877553"}},
+                {"location": {"latitude": "1.429383588", "longitude": "103.6877553"}},
+            ]
+        },
+    }
+    snapshot_payload = {
+        "code": 0,
+        "data": {
+            "records": [record],
+        },
+    }
+
+    monkeypatch.setattr(
+        engine,
+        "_fetch_lightning_payload",
+        lambda: (snapshot_payload, "live_api", None),
+    )
+    monkeypatch.setattr(
+        engine,
+        "_fetch_lightning_records_for_history",
+        lambda now_sgt, cutoff_sgt: (
+            [record],
+            {
+                "data_source": "live_api",
+                "request_count": 1,
+                "truncated": False,
+                "rate_limited": False,
+                "error": None,
+                "coverage_start": observation_time,
+            },
+        ),
+    )
+
+    with app.app_context():
+        db.create_all()
+        db.session.query(LightningHistorySnapshot).delete()
+        db.session.commit()
+
+        first_payload = engine.get_lightning_history()
+        assert first_payload["metadata"]["persisted_records_loaded"] >= 1
+        assert db.session.query(LightningHistorySnapshot).count() >= 1
+        stored_row = db.session.query(LightningHistorySnapshot).first()
+        assert stored_row is not None
+        assert stored_row.points_30km_json is not None
+
+        engine._lightning_history_cache = None
+        engine._lightning_history_cache_at = None
+        engine._lightning_snapshot_cache = None
+        engine._lightning_snapshot_cache_at = None
+
+        monkeypatch.setattr(
+            engine,
+            "_fetch_lightning_records_for_history",
+            lambda now_sgt, cutoff_sgt: (
+                [],
+                {
+                    "data_source": "live_api",
+                    "request_count": 1,
+                    "truncated": False,
+                    "rate_limited": True,
+                    "error": "rate_limited",
+                    "coverage_start": None,
+                },
+            ),
+        )
+
+        second_payload = engine.get_lightning_history()
+        assert second_payload["metadata"]["history_basis"] == "persisted_store"
+        assert second_payload["metadata"]["persisted_records_loaded"] >= 1
+        assert sum(second_payload["charts"]["20m"]["counts_30km"]) >= 1
+
+
+def test_lightning_cooldown_is_consistent_across_engine_instances(app, monkeypatch):
+    with app.app_context():
+        db.create_all()
+        db.session.query(LightningHistorySnapshot).delete()
+        db.session.commit()
+
+        now_utc = datetime.now(timezone.utc).replace(microsecond=0)
+        observed_at_utc = (now_utc - timedelta(minutes=1)).replace(tzinfo=None)
+        observed_at_sgt = (now_utc - timedelta(minutes=1)).astimezone(
+            timezone(timedelta(hours=8))
+        ).isoformat()
+        db.session.add(
+            LightningHistorySnapshot(
+                observed_at_utc=observed_at_utc,
+                observed_at_sgt=observed_at_sgt,
+                within_15km_count=3,
+                within_30km_count=10,
+                total_valid_count=10,
+                nearest_distance_km=5.0,
+                data_source="persisted_store",
+                points_30km_json="[]",
+            )
+        )
+        db.session.commit()
+
+        engines = [WeatherEngine(), WeatherEngine()]
+        for engine in engines:
+            monkeypatch.setattr(engine, "_is_operating_hours", lambda: (True, None))
+            monkeypatch.setattr(engine, "_get_community_consensus", lambda: None)
+            monkeypatch.setattr(engine, "get_rainfall_status", lambda: (0.0, None, None))
+            monkeypatch.setattr(
+                engine,
+                "get_lightning_status",
+                lambda: (
+                    PoolStatus.GREEN,
+                    "No lightning nearby - Pool is Open",
+                    {
+                        "min_distance_km": 999.0,
+                        "lightning_count": 0,
+                        "data_source": "persisted_store",
+                        "observation_time_sgt": observed_at_sgt,
+                        "lightning_count_basis": "within_30km_latest_snapshot",
+                    },
+                ),
+            )
+
+            status, message, details = engine.get_overall_status()
+            assert status == PoolStatus.RED
+            assert "Estimated" in message
+            assert details.get("reason") == "lightning"
