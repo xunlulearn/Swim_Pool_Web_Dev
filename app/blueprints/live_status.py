@@ -4,6 +4,7 @@ from threading import Lock
 from flask import Blueprint, current_app, jsonify, request
 from flask_login import login_required, current_user
 from app.models.report import PoolReport
+from app.models.user import User
 from app.extensions import db
 
 live_status_bp = Blueprint('live_status', __name__, url_prefix='/api/live-status')
@@ -49,6 +50,15 @@ def _invalidate_cache():
         _report_cache = None
         _report_cache_at = None
 
+
+def _serialize_report_row(*, report_id, status, created_at, username):
+    return {
+        "id": report_id,
+        "status": status,
+        "user": username or "Unknown",
+        "timestamp": created_at.isoformat() if created_at else None,
+    }
+
 @live_status_bp.route('/', methods=['GET'])
 def get_reports():
     # Always show the latest 10 reports on the homepage feed.
@@ -57,18 +67,29 @@ def get_reports():
         return jsonify(cached)
 
     try:
+        # Select only UI fields to avoid loading heavy User.avatar binary blobs.
         reports = (
-            PoolReport.query
+            db.session.query(
+                PoolReport.id,
+                PoolReport.status,
+                PoolReport.created_at,
+                User.username,
+            )
+            .outerjoin(User, PoolReport.user_id == User.id)
             .order_by(PoolReport.created_at.desc())
             .limit(10)
             .all()
         )
 
-        results = []
-        for r in reports:
-            # Calculate relative time string strictly for display if needed here,
-            # or just send ISO timestamp and let JS handle it (preferred)
-            results.append(r.to_dict())
+        results = [
+            _serialize_report_row(
+                report_id=r.id,
+                status=r.status,
+                created_at=r.created_at,
+                username=r.username,
+            )
+            for r in reports
+        ]
         _set_cached_reports(results)
         return jsonify(results)
     except Exception:
@@ -101,5 +122,12 @@ def submit_report():
     db.session.add(report)
     db.session.commit()
     _invalidate_cache()
-    
-    return jsonify(report.to_dict()), 201
+
+    return jsonify(
+        _serialize_report_row(
+            report_id=report.id,
+            status=report.status,
+            created_at=report.created_at,
+            username=getattr(current_user, "username", ""),
+        )
+    ), 201

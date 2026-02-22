@@ -10,6 +10,7 @@ from threading import Lock
 import requests
 from flask import current_app, has_app_context
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import load_only
 
 # Legacy toggle kept for backward compatibility; runtime selection uses
 # `USE_SAMPLE_WEATHER_DATA` in app config.
@@ -331,7 +332,10 @@ class WeatherEngine:
                 from app.models.lightning_history import LightningHistorySnapshot
 
                 row = (
-                    LightningHistorySnapshot.query.filter(
+                    LightningHistorySnapshot.query.options(
+                        load_only(LightningHistorySnapshot.observed_at_utc)
+                    )
+                    .filter(
                         LightningHistorySnapshot.observed_at_utc
                         >= cutoff_utc.replace(tzinfo=None),
                         LightningHistorySnapshot.within_15km_count > 0,
@@ -803,7 +807,13 @@ class WeatherEngine:
 
             observed_keys = list(normalized.keys())
             existing_rows = (
-                LightningHistorySnapshot.query.filter(
+                LightningHistorySnapshot.query.options(
+                    load_only(
+                        LightningHistorySnapshot.id,
+                        LightningHistorySnapshot.observed_at_utc,
+                    )
+                )
+                .filter(
                     LightningHistorySnapshot.observed_at_utc.in_(observed_keys)
                 ).all()
             )
@@ -834,7 +844,13 @@ class WeatherEngine:
             except IntegrityError:
                 db.session.rollback()
                 existing_rows = (
-                    LightningHistorySnapshot.query.filter(
+                    LightningHistorySnapshot.query.options(
+                        load_only(
+                            LightningHistorySnapshot.id,
+                            LightningHistorySnapshot.observed_at_utc,
+                        )
+                    )
+                    .filter(
                         LightningHistorySnapshot.observed_at_utc.in_(observed_keys)
                     ).all()
                 )
@@ -904,7 +920,16 @@ class WeatherEngine:
             now_utc = self._to_utc_naive(now_sgt)
 
             rows = (
-                LightningHistorySnapshot.query.filter(
+                LightningHistorySnapshot.query.options(
+                    load_only(
+                        LightningHistorySnapshot.observed_at_utc,
+                        LightningHistorySnapshot.within_15km_count,
+                        LightningHistorySnapshot.within_30km_count,
+                        LightningHistorySnapshot.total_valid_count,
+                        LightningHistorySnapshot.nearest_distance_km,
+                    )
+                )
+                .filter(
                     LightningHistorySnapshot.observed_at_utc >= cutoff_utc,
                     LightningHistorySnapshot.observed_at_utc <= now_utc,
                 )
@@ -958,7 +983,8 @@ class WeatherEngine:
             return None
 
         points_30km = self._parse_json_list(getattr(row, "points_30km_json", None))
-        if not points_30km:
+        expected_points_30km = int(getattr(row, "within_30km_count", 0) or 0)
+        if not points_30km and expected_points_30km > 0:
             source_record = getattr(row, "source_record_json", None)
             if source_record:
                 try:
@@ -1017,7 +1043,18 @@ class WeatherEngine:
             from app.models.lightning_history import LightningHistorySnapshot
 
             row = (
-                LightningHistorySnapshot.query.order_by(
+                LightningHistorySnapshot.query.options(
+                    load_only(
+                        LightningHistorySnapshot.observed_at_utc,
+                        LightningHistorySnapshot.observed_at_sgt,
+                        LightningHistorySnapshot.within_15km_count,
+                        LightningHistorySnapshot.within_30km_count,
+                        LightningHistorySnapshot.total_valid_count,
+                        LightningHistorySnapshot.nearest_distance_km,
+                        LightningHistorySnapshot.points_30km_json,
+                    )
+                )
+                .order_by(
                     LightningHistorySnapshot.observed_at_utc.desc()
                 ).first()
             )

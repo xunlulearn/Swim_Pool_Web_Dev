@@ -48,6 +48,7 @@ The system determines the pool status based on the following **Priority Order** 
 * **Purpose**: Returns chart-ready lightning counts around NTU SRC for frontend trend rendering.
 * **Data Basis**: Reads from persisted table `lightning_history_snapshots` as source of truth.
 * **Consistency Rule**: The most recent chart point is aligned with the shared latest lightning snapshot used by status and radar endpoints.
+* **Egress Guardrail**: History aggregation reads only metric columns needed for chart bins (instead of full snapshot payload columns).
 * **Distance Options**: `15 km` and `30 km`.
 * **Time Windows**:
     * `20m`: one bar per persisted snapshot, with explicit window start/end boundary points to keep exact 20-minute span.
@@ -68,6 +69,7 @@ The system determines the pool status based on the following **Priority Order** 
     * `points`: list of lightning points with latitude, longitude, and computed distance.
     * `metrics`: nearest distance, count within radius, and risk-level summary.
     * `meta`: source and warning/error details.
+* **Egress Guardrail**: Latest snapshot loading avoids `source_record_json` unless fallback reconstruction is necessary.
 * **Frontend Interaction Contract**:
     * Radar sweep angle is updated every animation frame.
     * Each point angle is calculated with `Math.atan2`.

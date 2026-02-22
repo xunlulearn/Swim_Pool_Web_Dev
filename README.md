@@ -227,6 +227,11 @@ Lightning snapshots are persisted in `lightning_history_snapshots` and used as t
 - radar (`/weather/lightning-radar`)
 - trend chart (`/weather/lightning-history`)
 
+DB egress guardrails (behavior-preserving optimizations):
+- `/api/live-status/` reads only `pool_reports.id/status/created_at` + `users.username` for the latest 10 rows, avoiding avatar/blob columns.
+- Lightning history aggregation reads only metric columns needed for chart bins.
+- Latest lightning snapshot loading avoids `source_record_json` unless fallback reconstruction is truly needed.
+
 PowerShell 5.1 compatibility:
 - Avoid chaining with `&&` in this repo's Windows shell context.
 - Use separate lines, `;`, or use `dev.bat` wrappers.
