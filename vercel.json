@@ -2,11 +2,11 @@
   "rewrites": [
     {
       "source": "/(.*)",
-      "destination": "/vercel_app.py"
+      "destination": "/api/index.py"
     }
   ],
   "functions": {
-    "vercel_app.py": {
+    "api/index.py": {
       "maxDuration": 60
     }
   }

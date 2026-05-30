@@ -1,7 +1,7 @@
 # Vercel Deployment Guide
 
 This project can run on Vercel as a Python Flask function through
-`vercel_app.py`. The always-on
+`api/index.py`. The always-on
 Cloud Run lightning collector is replaced by an authenticated HTTP cron
 endpoint that an external scheduler calls periodically.
 

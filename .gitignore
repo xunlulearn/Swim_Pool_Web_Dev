@@ -29,6 +29,8 @@ venv/
 
 # Environment variables
 .env
+.env.*
+!.env.example
 
 # Tailwind
 app/static/dist/
