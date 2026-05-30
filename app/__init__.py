@@ -208,6 +208,9 @@ def create_app(config_name=None):
     from .blueprints.chatbot import chatbot_bp
     app.register_blueprint(chatbot_bp)
 
+    from .blueprints.cron import cron_bp
+    app.register_blueprint(cron_bp)
+
     from .services.lightning_collector import maybe_start_lightning_collector
     maybe_start_lightning_collector(app)
 
