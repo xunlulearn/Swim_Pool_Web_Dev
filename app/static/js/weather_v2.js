@@ -2,6 +2,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const STATUS_ENDPOINT = '/weather/status';
     const POLL_INTERVAL = 60000; // 60 seconds
     const FETCH_TIMEOUT_MS = 12000;
+    const INITIAL_RETRY_DELAY_MS = 1500;
+    let hasLoadedWeather = false;
 
     const ui = {
         card: document.getElementById('status-card'),
@@ -315,7 +317,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function updateWeather() {
+    async function updateWeather(options = {}) {
         try {
             // Add loading pulse if needed, or subtle indication
             
@@ -358,9 +360,17 @@ document.addEventListener('DOMContentLoaded', () => {
             // 5. Update Time
             const now = new Date();
             ui.updated.textContent = now.toLocaleTimeString();
+            hasLoadedWeather = true;
 
         } catch (error) {
             console.error('Weather fetch error:', error);
+            if (!hasLoadedWeather && options.retryOnFailure !== false) {
+                window.setTimeout(
+                    () => updateWeather({ retryOnFailure: false }),
+                    INITIAL_RETRY_DELAY_MS
+                );
+                return;
+            }
             ui.message.textContent = toBilingualMessage('Unable to reach weather service.');
             ui.text.textContent = "OFFLINE";
             ui.text.className = "text-gray-400";

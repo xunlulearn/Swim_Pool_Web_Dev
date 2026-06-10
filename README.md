@@ -216,6 +216,7 @@ The following environment variables control weather data behavior:
 - `USE_SAMPLE_WEATHER_DATA` (`true`/`false`): enables sample weather payloads in DEBUG/TESTING only.
 - `FORCE_SAMPLE_WEATHER_DATA` (`true`/`false`): forces sample mode regardless of environment (local review helper).
 - `WEATHER_STATUS_CACHE_SECONDS`: cache TTL for `/weather/status` responses (default `30`).
+- `WEATHER_API_TIMEOUT_SECONDS`: per-request timeout for upstream NEA weather API calls (default `4`).
 - `LIGHTNING_SNAPSHOT_CACHE_SECONDS`: cache TTL for shared latest lightning snapshot used by status/radar/history alignment (default `30`).
 - `LIGHTNING_HISTORY_CACHE_SECONDS`: cache TTL for `/weather/lightning-history` responses (default `60`).
 - `LIGHTNING_COLLECTOR_ENABLED`: start background lightning collector thread (default `true`).

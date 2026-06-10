@@ -20,6 +20,7 @@ Recommended for Vercel:
 - `LIGHTNING_COLLECTOR_ENABLED=false`
 - `USE_SAMPLE_WEATHER_DATA=false`
 - `WEATHER_STATUS_CACHE_SECONDS=30`
+- `WEATHER_API_TIMEOUT_SECONDS=4`
 - `LIGHTNING_SNAPSHOT_CACHE_SECONDS=30`
 - `LIGHTNING_HISTORY_CACHE_SECONDS=60`
 - `DB_CONNECT_TIMEOUT=5`
@@ -64,9 +65,12 @@ Generate one value for `SECRET_KEY` and another for `CRON_SECRET`.
 
 1. Import the GitHub repository in Vercel.
 2. Add the environment variables above.
-3. Deploy.
-4. Confirm the homepage loads.
-5. Confirm the cron endpoint rejects public access:
+3. Confirm `vercel.json` is deployed with `"regions": ["sin1"]` for Singapore
+   users and NEA API proximity. If your production database is not in Singapore,
+   choose the Vercel region closest to the database instead.
+4. Deploy.
+5. Confirm the homepage loads.
+6. Confirm the cron endpoint rejects public access:
 
 ```text
 https://YOUR_DOMAIN/api/cron/collect-lightning
@@ -78,7 +82,7 @@ Expected response:
 {"error":"Not found."}
 ```
 
-6. Confirm the cron endpoint works with the secret:
+7. Confirm the cron endpoint works with the secret:
 
 ```text
 https://YOUR_DOMAIN/api/cron/collect-lightning?secret=YOUR_CRON_SECRET

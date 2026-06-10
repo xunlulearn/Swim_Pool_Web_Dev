@@ -101,6 +101,19 @@ class WeatherEngine:
             return int(current_app.config.get('WEATHER_STATUS_CACHE_SECONDS', 30))
         return 30
 
+    def _get_weather_api_timeout_seconds(self):
+        default_timeout = 4.0
+        if has_app_context():
+            raw_timeout = current_app.config.get('WEATHER_API_TIMEOUT_SECONDS', default_timeout)
+        else:
+            raw_timeout = default_timeout
+
+        try:
+            timeout = float(raw_timeout)
+        except (TypeError, ValueError):
+            return default_timeout
+        return max(1.0, timeout)
+
     def _get_cached_overall_status(self):
         ttl_seconds = self._get_status_cache_ttl_seconds()
         if ttl_seconds <= 0:
@@ -397,6 +410,12 @@ class WeatherEngine:
     def _compute_overall_status(self):
         """Compute weather status once; callers should apply concurrency guards."""
 
+        is_open_hours, hours_msg = self._is_operating_hours()
+        if not is_open_hours:
+            details = self._build_degraded_details("operating_hours")
+            self._set_cached_overall_status(PoolStatus.RED, hours_msg, details)
+            return PoolStatus.RED, hours_msg, details
+
         _, _, lightning_details = self.get_lightning_status()
         rainfall_rate, _, _ = self.get_rainfall_status()
         now = datetime.now(timezone.utc)
@@ -418,12 +437,6 @@ class WeatherEngine:
             "lightning_source_error": lightning_details.get("source_error"),
             "lightning_warning": lightning_details.get("warning"),
         }
-
-        is_open_hours, hours_msg = self._is_operating_hours()
-        if not is_open_hours:
-            details = {**base_metrics, "reason": "operating_hours"}
-            self._set_cached_overall_status(PoolStatus.RED, hours_msg, details)
-            return PoolStatus.RED, hours_msg, details
 
         community_status = self._get_community_consensus()
         if community_status:
@@ -622,7 +635,7 @@ class WeatherEngine:
                     self.LIGHTNING_API_BASE_URL,
                     headers=headers,
                     params=params,
-                    timeout=10,
+                    timeout=self._get_weather_api_timeout_seconds(),
                 )
             except requests.exceptions.Timeout:
                 error = 'timeout'
@@ -1377,7 +1390,7 @@ class WeatherEngine:
         response = requests.get(
             self.LIGHTNING_API_URL,
             headers=headers,
-            timeout=10,
+            timeout=self._get_weather_api_timeout_seconds(),
         )
 
         if response.status_code == 403:
@@ -1785,7 +1798,7 @@ class WeatherEngine:
                 response = requests.get(
                     self.RAINFALL_API_URL,
                     headers=headers,
-                    timeout=10,
+                    timeout=self._get_weather_api_timeout_seconds(),
                 )
 
                 if response.status_code != 200:
