@@ -42,7 +42,33 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.restore();
         },
     };
-    Chart.register(chartAreaBackgroundPlugin);
+
+    const zeroLightningMessagePlugin = {
+        id: 'zeroLightningMessage',
+        afterDraw(chart, _args, options) {
+            if (!options?.display || !options?.text) {
+                return;
+            }
+
+            const { ctx, chartArea } = chart;
+            if (!chartArea) {
+                return;
+            }
+
+            ctx.save();
+            ctx.fillStyle = options.color || '#475569';
+            ctx.font = options.font || '600 13px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(
+                options.text,
+                chartArea.left + ((chartArea.right - chartArea.left) / 2),
+                chartArea.top + ((chartArea.bottom - chartArea.top) / 2)
+            );
+            ctx.restore();
+        },
+    };
+    Chart.register(chartAreaBackgroundPlugin, zeroLightningMessagePlugin);
 
     const state = {
         distance: '15km',
@@ -151,6 +177,30 @@ document.addEventListener('DOMContentLoaded', () => {
         return Math.max(1, Math.ceil((safeCount - 1) / maxVisible));
     }
 
+    function isXAxisTickTooCloseToEnd(index, lastIndex, tickStep) {
+        if (state.window !== '12h' || tickStep <= 1 || index === lastIndex) {
+            return false;
+        }
+
+        const endGuard = Math.max(2, Math.ceil(tickStep / 2));
+        return index >= lastIndex - endGuard;
+    }
+
+    function getYAxisMax(series) {
+        const values = Array.isArray(series) ? series : [];
+        const maxValue = values.reduce((highest, value) => Math.max(highest, Number(value) || 0), 0);
+        return maxValue < 10 ? 10 : undefined;
+    }
+
+    function hasZeroLightningData(labels, series) {
+        if (!Array.isArray(labels) || labels.length === 0 || !Array.isArray(series) || series.length === 0) {
+            return false;
+        }
+
+        const total = series.reduce((acc, value) => acc + (Number(value) || 0), 0);
+        return total === 0;
+    }
+
     function renderSummary(windowData, rawSeries) {
         if (!windowData) {
             ui.summary.textContent = 'No lightning trend data available.';
@@ -193,6 +243,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const rawSeries = getActiveSeries(windowData);
         const colorConfig = getColorConfig();
         const xTickStep = getXAxisTickStep(labels.length);
+        const yAxisMax = getYAxisMax(rawSeries);
+        const showZeroLightningMessage = hasZeroLightningData(labels, rawSeries);
 
         const chartConfig = {
             type: 'bar',
@@ -244,6 +296,12 @@ document.addEventListener('DOMContentLoaded', () => {
                             },
                         },
                     },
+                    zeroLightningMessage: {
+                        display: showZeroLightningMessage,
+                        text: 'No lightning detected',
+                        color: '#475569',
+                        font: '600 13px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+                    },
                     title: {
                         display: true,
                         text: `${windowData.display_label || state.window} | ${getDistanceLabel()}`,
@@ -265,6 +323,9 @@ document.addEventListener('DOMContentLoaded', () => {
                             autoSkip: false,
                             callback(value, index, ticks) {
                                 const lastIndex = ticks.length - 1;
+                                if (isXAxisTickTooCloseToEnd(index, lastIndex, xTickStep)) {
+                                    return '';
+                                }
                                 if (index === 0 || index === lastIndex || index % xTickStep === 0) {
                                     return this.getLabelForValue(value);
                                 }
@@ -277,6 +338,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     },
                     y: {
                         beginAtZero: true,
+                        max: yAxisMax,
                         title: {
                             display: true,
                             text: 'Lightning Count',
