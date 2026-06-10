@@ -59,6 +59,7 @@ class WeatherEngine:
     LIGHTNING_API_BASE_URL = "https://api-open.data.gov.sg/v2/real-time/api/weather"
     LIGHTNING_API_URL = f"{LIGHTNING_API_BASE_URL}?api=lightning"
     RAINFALL_API_URL = "https://api-open.data.gov.sg/v2/real-time/api/rainfall"
+    LIGHTNING_HISTORY_RETENTION = timedelta(hours=24)
 
     def __init__(self):
         self.last_lightning_alert_time = None
@@ -780,6 +781,19 @@ class WeatherEngine:
             return dt_value
         return dt_value.astimezone(timezone.utc).replace(tzinfo=None)
 
+    def _prune_old_lightning_history_rows(self, anchor_utc):
+        if anchor_utc is None:
+            return 0
+
+        from app.models.lightning_history import LightningHistorySnapshot
+
+        cutoff_utc = anchor_utc - self.LIGHTNING_HISTORY_RETENTION
+        return (
+            LightningHistorySnapshot.query
+            .filter(LightningHistorySnapshot.observed_at_utc < cutoff_utc)
+            .delete(synchronize_session=False)
+        )
+
     def _persist_lightning_snapshot_points(self, snapshot_points, data_source="live_api"):
         if not has_app_context() or not snapshot_points:
             return 0
@@ -819,6 +833,7 @@ class WeatherEngine:
                 return 0
 
             observed_keys = list(normalized.keys())
+            retention_anchor_utc = max(observed_keys)
             existing_rows = (
                 LightningHistorySnapshot.query.options(
                     load_only(
@@ -851,6 +866,7 @@ class WeatherEngine:
                     row.source_record_json = payload["source_record_json"]
                 written_count += 1
 
+            self._prune_old_lightning_history_rows(retention_anchor_utc)
             try:
                 db.session.commit()
                 return written_count
@@ -883,6 +899,7 @@ class WeatherEngine:
                         row.points_30km_json = payload["points_30km_json"]
                     if payload["source_record_json"] is not None:
                         row.source_record_json = payload["source_record_json"]
+                self._prune_old_lightning_history_rows(retention_anchor_utc)
                 db.session.commit()
                 return written_count
         except Exception:

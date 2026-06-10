@@ -229,6 +229,60 @@ def test_lightning_history_uses_persisted_store_when_live_fetch_is_limited(app, 
         assert sum(second_payload["charts"]["20m"]["counts_30km"]) >= 1
 
 
+def test_persist_lightning_snapshot_prunes_rows_older_than_24_hours(app):
+    engine = WeatherEngine()
+    now_utc = datetime(2026, 6, 10, 12, 20, 0, tzinfo=timezone.utc)
+    old_utc = now_utc - timedelta(hours=24, minutes=1)
+    kept_utc = now_utc - timedelta(hours=23, minutes=59)
+
+    with app.app_context():
+        db.create_all()
+        db.session.query(LightningHistorySnapshot).delete()
+        db.session.add_all(
+            [
+                LightningHistorySnapshot(
+                    observed_at_utc=old_utc.replace(tzinfo=None),
+                    observed_at_sgt=old_utc.astimezone(engine.SGT).isoformat(),
+                    within_15km_count=0,
+                    within_30km_count=1,
+                    total_valid_count=1,
+                    data_source="live_api",
+                ),
+                LightningHistorySnapshot(
+                    observed_at_utc=kept_utc.replace(tzinfo=None),
+                    observed_at_sgt=kept_utc.astimezone(engine.SGT).isoformat(),
+                    within_15km_count=0,
+                    within_30km_count=2,
+                    total_valid_count=2,
+                    data_source="live_api",
+                ),
+            ]
+        )
+        db.session.commit()
+
+        written = engine._persist_lightning_snapshot_points(
+            [
+                {
+                    "time": now_utc,
+                    "counts_15km": 0,
+                    "counts_30km": 3,
+                    "total_valid_count": 3,
+                    "nearest_distance_km": 20.0,
+                }
+            ],
+            data_source="live_api",
+        )
+
+        assert written == 1
+        observed_times = {
+            row.observed_at_utc.replace(tzinfo=timezone.utc)
+            for row in LightningHistorySnapshot.query.all()
+        }
+        assert old_utc not in observed_times
+        assert kept_utc in observed_times
+        assert now_utc in observed_times
+
+
 def test_lightning_cooldown_is_consistent_across_engine_instances(app, monkeypatch):
     with app.app_context():
         db.create_all()
