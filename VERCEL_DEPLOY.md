@@ -1,9 +1,9 @@
 # Vercel Deployment Guide
 
-This project can run on Vercel as a Python Flask app through `server.py`.
-The always-on
-Cloud Run lightning collector is replaced by an authenticated HTTP cron
-endpoint that an external scheduler calls periodically.
+This project runs on Vercel as a Python Flask app through `server.py`.
+Because Vercel functions are request-driven, lightning history collection uses
+an authenticated HTTP cron endpoint that an external scheduler calls
+periodically.
 
 ## 1. Vercel Environment Variables
 
@@ -63,12 +63,14 @@ Generate one value for `SECRET_KEY` and another for `CRON_SECRET`.
 
 ## 3. Deploy to Vercel
 
-1. Import the GitHub repository in Vercel.
-2. Add the environment variables above.
+1. Import the GitHub repository in Vercel or link the local project with
+   `npx vercel link`.
+2. Add the environment variables above in Vercel Project Settings.
 3. Confirm `vercel.json` is deployed with `"regions": ["sin1"]` for Singapore
    users and NEA API proximity. If your production database is not in Singapore,
    choose the Vercel region closest to the database instead.
-4. Deploy.
+4. Deploy by pushing to the connected production branch, or run
+   `deploy_update.bat` for a manual CLI production deploy.
 5. Confirm the homepage loads.
 6. Confirm the cron endpoint rejects public access:
 
@@ -109,9 +111,8 @@ The endpoint returns a short JSON response so it stays within cron-job.org's
 
 ## 5. Runtime Model
 
-On Cloud Run, the app used an in-process background thread to collect lightning
-snapshots every 120 seconds. On Vercel, functions are started on demand and may
-be frozen after a request, so long-running background threads are not reliable.
+Vercel functions are started on demand and may be frozen after a request, so
+long-running background threads are not reliable for production collection.
 
 With this setup:
 - Vercel serves the website and Flask API.

@@ -4,7 +4,7 @@
 [![Flask](https://img.shields.io/badge/Flask-3.x-000000?logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![LangChain](https://img.shields.io/badge/LangChain-RAG-1C3C3C)](https://www.langchain.com/)
-[![Deploy](https://img.shields.io/badge/Deploy-Google%20Cloud%20Run-4285F4?logo=googlecloud&logoColor=white)](https://cloud.google.com/run)
+[![Deploy](https://img.shields.io/badge/Deploy-Vercel-000000?logo=vercel&logoColor=white)](https://vercel.com)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-666666)](#getting-started)
 
 A comprehensive platform for Nanyang Technological University (NTU) students and staff to track real-time swimming pool status and connect with the community.
@@ -100,7 +100,7 @@ Do not rely on system/global Python for routine project updates.
 
 Optional system tools (not Python packages, validated by `dev.bat doctor`):
 - GitHub CLI (`gh`) for release publishing
-- Google Cloud SDK (`gcloud`) for Cloud Run deployment
+- Node.js/npm (`npx`) for Vercel CLI deployment
 
 ### Installation
 
@@ -202,6 +202,8 @@ Common commands:
 - `dev.bat doctor --strict`
 - `dev.bat doctor --require-release-tools`
 - `dev.bat doctor --require-deploy-tools`
+- `deploy_update.bat --check-only`
+- `deploy_update.bat`
 - `dev.bat run`
 - `dev.bat test -q`
 - `dev.bat init-db`
@@ -247,7 +249,8 @@ This project is licensed under the MIT License.
 
 ## Chatbot Deployment
 
-For LangGraph/LangChain chatbot deployment details, see `CHATBOT_DEPLOY.md`.
+For Vercel and LangGraph/LangChain chatbot deployment details, see
+`VERCEL_DEPLOY.md` and `CHATBOT_DEPLOY.md`.
 
 ## Chatbot Runtime Behavior
 

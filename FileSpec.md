@@ -35,7 +35,8 @@ Purpose: Fast navigation for feature work and bug fixes. Keep this file short an
 - Local docs source: `knowledge_base/`
 
 ## 4. Deploy and Runtime Constraints
-- Deploy script: `deploy_update.bat`
+- Production platform: Vercel.
+- Deploy script: `deploy_update.bat` (manual Vercel CLI fallback; GitHub-Vercel integration may deploy automatically from the production branch).
 - Deploy scripts require local `.venv` precheck via `scripts/venv_doctor.py --require-deploy-tools`.
 - Required env (typical):
   - `DATABASE_URL`

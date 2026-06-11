@@ -1,6 +1,6 @@
 ﻿# Chatbot Deployment Guide
 
-Updated: 2026-02-20
+Updated: 2026-06-11
 
 This runbook matches the current NTU Pool codebase and deployment scripts.
 
@@ -147,7 +147,7 @@ dev.bat sync --full-rebuild
 - Continue chatting until user cumulative count reaches 10, then confirm 5-star feedback widget appears.
 - Submit a star rating and confirm no second submission is allowed for the same message.
 
-## 5. Deploy to Cloud Run
+## 5. Deploy to Vercel
 
 ### 5.1 Windows CMD
 ```bat
@@ -167,13 +167,17 @@ deploy_update.bat --check-only
 Deploy scripts behavior:
 1. Check required env vars.
 2. Run `.venv` doctor precheck (`scripts/venv_doctor.py --require-deploy-tools`).
-3. Build container image.
-4. Deploy Cloud Run service with chatbot env vars.
-5. Output service URL.
+3. Verify Vercel CLI availability through `npx`.
+4. Deploy the current source to Vercel production with `npx vercel deploy --prod --yes`.
+5. Output the production URL printed by Vercel.
 
 Important:
-- If you double-click `deploy_update.bat`, it now auto-loads project `.env` variables.
+- The production platform is Vercel. Do not use gcloud, Docker, or Cloud Run for routine deploys.
+- If GitHub integration is enabled in Vercel, pushing the production branch may already deploy automatically.
+- If you double-click `deploy_update.bat`, it auto-loads project `.env` variables for local checks.
 - If `DATABASE_URL` is missing but `SQLALCHEMY_DATABASE_URI` exists, `deploy_update.bat` will use it as fallback.
+- First-time manual CLI deploys may require `npx vercel login` and `npx vercel link`.
+- CI/non-interactive deploys should provide `VERCEL_TOKEN`.
 - If you need a non-default chat log table name, include `SUPABASE_CHAT_LOG_TABLE` explicitly in your deploy command env vars.
 
 ## 6. Production Verification Checklist

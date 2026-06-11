@@ -74,11 +74,10 @@ TOOL_FALLBACKS: dict[str, list[str]] = {
         r"C:\Program Files (x86)\GitHub CLI\gh.exe",
         os.path.expandvars(r"%LOCALAPPDATA%\Programs\GitHub CLI\gh.exe"),
     ],
-    "gcloud": [
-        r"D:\Google Cloud SDK\google-cloud-sdk\bin\gcloud.cmd",
-        os.path.expandvars(r"%LOCALAPPDATA%\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd"),
-        r"C:\Program Files\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd",
-        r"C:\Program Files (x86)\Google\Cloud SDK\google-cloud-sdk\bin\gcloud.cmd",
+    "npx": [
+        r"C:\Program Files\nodejs\npx.cmd",
+        os.path.expandvars(r"%APPDATA%\npm\npx.cmd"),
+        os.path.expandvars(r"%LOCALAPPDATA%\Programs\nodejs\npx.cmd"),
     ],
     "docker": [
         r"C:\Program Files\Docker\Docker\resources\bin\docker.exe",
@@ -89,7 +88,7 @@ TOOL_PROBE_ARGS: dict[str, list[str]] = {
     "git": ["--version"],
     "bash": ["--version"],
     "gh": ["--version"],
-    "gcloud": ["--version"],
+    "npx": ["--version"],
     "docker": ["--version"],
 }
 
@@ -316,13 +315,13 @@ def main() -> int:
     if args.require_release_tools:
         required_tools.append("gh")
     if args.require_deploy_tools:
-        required_tools.append("gcloud")
+        required_tools.append("npx")
 
     optional_tools = []
     if not args.require_release_tools:
         optional_tools.append("gh")
     if not args.require_deploy_tools:
-        optional_tools.extend(["gcloud"])
+        optional_tools.extend(["npx"])
 
     seen_tools: set[str] = set()
     for tool in required_tools:

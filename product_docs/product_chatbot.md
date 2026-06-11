@@ -36,7 +36,7 @@ Deliver a production-usable chatbot on `ntupool.org` that:
   - 5-star feedback widget rendering and submit (`/api/chat/feedback`) with CSRF auto-refresh/retry
 
 ### 2.3 Deployment and Docs
-- `deploy_update.bat` includes chatbot env checks/injection.
+- `deploy_update.bat` runs Vercel deploy prechecks and can deploy production through the Vercel CLI.
 - `requirements.txt` and `.env.example` include chatbot dependencies/config.
 - `CHATBOT_DEPLOY.md` updated as deployment runbook.
 
