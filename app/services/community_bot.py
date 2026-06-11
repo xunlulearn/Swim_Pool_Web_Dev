@@ -4,7 +4,9 @@ from datetime import datetime, timedelta
 from app.extensions import db
 from app.models.bot import BotAccount, BotActivityLog, BotDailyPostPlan
 from app.models.content import Post
+from app.models.report import PoolReport
 from app.models.user import User
+from app.services.weather_engine import weather_engine
 
 
 SGT_OFFSET = timedelta(hours=8)
@@ -243,6 +245,20 @@ def _schedule_next_run(account, now):
     account.next_run_at = now + timedelta(hours=random.randint(6, 30), minutes=random.randint(0, 55))
 
 
+def _get_homepage_report_status():
+    state, _, _ = weather_engine.get_overall_status()
+    return 'Open' if getattr(state, 'value', None) == 'Open' else 'Closed'
+
+
+def _invalidate_live_status_report_cache():
+    try:
+        from app.blueprints.live_status import _invalidate_report_cache
+
+        _invalidate_report_cache()
+    except Exception:
+        pass
+
+
 def run_community_post_tick(now=None):
     now = now or datetime.utcnow()
     ensure_bot_accounts(now=now)
@@ -269,6 +285,7 @@ def run_community_post_tick(now=None):
         }
 
     title, body = _build_post(account)
+    report_status = _get_homepage_report_status()
     post = Post(
         title=title,
         body=body,
@@ -288,7 +305,13 @@ def run_community_post_tick(now=None):
         reason=f'daily_plan:{plan.day}:{posted_count + 1}/{plan.target_count}',
         created_at=now,
     ))
+    db.session.add(PoolReport(
+        status=report_status,
+        user_id=account.user_id,
+        created_at=now,
+    ))
     db.session.commit()
+    _invalidate_live_status_report_cache()
 
     return {
         'ok': True,

@@ -62,6 +62,39 @@ def test_community_post_tick_creates_post_and_activity_log(app):
         assert BotActivityLog.query.filter_by(status='posted', post_id=post.id).count() == 1
 
 
+def test_community_post_tick_records_homepage_pool_status_report(app, monkeypatch):
+    from app.models.bot import BotAccount, BotDailyPostPlan
+    from app.models.report import PoolReport
+    from app.services.community_bot import ensure_bot_accounts, run_community_post_tick
+    from app.services.weather_engine import PoolStatus, weather_engine
+
+    now = datetime(2026, 6, 11, 10, 30, 0)
+
+    monkeypatch.setattr(
+        weather_engine,
+        "get_overall_status",
+        lambda: (PoolStatus.GREEN, "Pool is Open", {"reason": "test"}),
+    )
+
+    with app.app_context():
+        ensure_bot_accounts()
+        db.session.add(BotDailyPostPlan(day='2026-06-11', target_count=2))
+        for account in BotAccount.query.all():
+            account.next_run_at = now - timedelta(minutes=5)
+        db.session.commit()
+
+        result = run_community_post_tick(now=now)
+
+        assert result['ok'] is True
+        assert result['action'] == 'posted'
+
+        post = Post.query.first()
+        report = PoolReport.query.one()
+        assert report.user_id == post.author_id
+        assert report.status == "Open"
+        assert report.created_at == now
+
+
 def test_first_community_post_tick_seeds_accounts_and_posts(app):
     from app.models.bot import BotActivityLog
     from app.services.community_bot import run_community_post_tick
