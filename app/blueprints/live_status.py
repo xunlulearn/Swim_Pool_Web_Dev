@@ -51,11 +51,15 @@ def _invalidate_cache():
         _report_cache_at = None
 
 
-def _serialize_report_row(*, report_id, status, created_at, username):
+def _display_name(*, nickname, username):
+    return (nickname or "").strip() or (username or "").strip() or "Unknown"
+
+
+def _serialize_report_row(*, report_id, status, created_at, username, nickname=""):
     return {
         "id": report_id,
         "status": status,
-        "user": username or "Unknown",
+        "user": _display_name(nickname=nickname, username=username),
         "timestamp": created_at.isoformat() if created_at else None,
     }
 
@@ -74,6 +78,7 @@ def get_reports():
                 PoolReport.status,
                 PoolReport.created_at,
                 User.username,
+                User.nickname,
             )
             .outerjoin(User, PoolReport.user_id == User.id)
             .order_by(PoolReport.created_at.desc())
@@ -87,6 +92,7 @@ def get_reports():
                 status=r.status,
                 created_at=r.created_at,
                 username=r.username,
+                nickname=r.nickname,
             )
             for r in reports
         ]
@@ -129,5 +135,6 @@ def submit_report():
             status=report.status,
             created_at=report.created_at,
             username=getattr(current_user, "username", ""),
+            nickname=getattr(current_user, "nickname", ""),
         )
     ), 201
