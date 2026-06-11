@@ -20,6 +20,8 @@ class User(UserMixin, TimestampMixin, db.Model):
     # 角色与封禁 (product_docs/product_social_network.md)
     role = db.Column(db.String(20), default='user')  # 'user' | 'admin'
     is_banned = db.Column(db.Boolean, default=False)
+    is_bot = db.Column(db.Boolean, default=False)
+    bot_persona = db.Column(db.String(64))
     
     # Profile Fields
     nickname = db.Column(db.String(64), default='')

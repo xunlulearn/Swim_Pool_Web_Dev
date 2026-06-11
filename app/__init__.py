@@ -129,10 +129,38 @@ def create_app(config_name=None):
             db.session.commit()
         app.logger.info('Ensured lightning history snapshot table exists.')
 
+    def ensure_bot_schema():
+        from .models.bot import BotAccount, BotActivityLog, BotDailyPostPlan
+
+        BotAccount.__table__.create(bind=db.engine, checkfirst=True)
+        BotDailyPostPlan.__table__.create(bind=db.engine, checkfirst=True)
+        BotActivityLog.__table__.create(bind=db.engine, checkfirst=True)
+
+        inspector = inspect(db.engine)
+        existing_tables = set(inspector.get_table_names())
+        if 'users' not in existing_tables:
+            return
+
+        existing_columns = {col['name'] for col in inspector.get_columns('users')}
+        dialect = db.engine.dialect.name
+        statements = []
+        if 'is_bot' not in existing_columns:
+            bool_default = 'BOOLEAN DEFAULT false' if dialect == 'postgresql' else 'BOOLEAN DEFAULT 0'
+            statements.append(f'ALTER TABLE users ADD COLUMN is_bot {bool_default}')
+        if 'bot_persona' not in existing_columns:
+            statements.append('ALTER TABLE users ADD COLUMN bot_persona VARCHAR(64)')
+
+        for statement in statements:
+            db.session.execute(text(statement))
+        if statements:
+            db.session.commit()
+            app.logger.info('Auto-migration applied for bot account schema.')
+
     with app.app_context():
         try:
             ensure_image_columns()
             ensure_lightning_history_table()
+            ensure_bot_schema()
         except Exception:
             db.session.rollback()
             app.logger.exception('Failed to auto-migrate database schema.')

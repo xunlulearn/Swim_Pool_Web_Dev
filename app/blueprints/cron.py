@@ -3,6 +3,7 @@ import hmac
 from flask import Blueprint, current_app, jsonify, request
 
 from app.services.weather_engine import weather_engine
+from app.services.community_bot import run_community_post_tick
 
 cron_bp = Blueprint("cron", __name__, url_prefix="/api/cron")
 
@@ -32,3 +33,12 @@ def collect_lightning():
         return jsonify({"ok": False, "reason": result.get("reason")}), 502
 
     return jsonify({"ok": True})
+
+
+@cron_bp.get("/community-posts")
+def community_posts():
+    if not _is_valid_cron_secret():
+        return jsonify({"error": "Not found."}), 404
+
+    result = run_community_post_tick()
+    return jsonify(result)

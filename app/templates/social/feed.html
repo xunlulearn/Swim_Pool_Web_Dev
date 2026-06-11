@@ -89,8 +89,11 @@
                         <h2 class="text-base font-bold text-slate-800 truncate">{{ post.title }}</h2>
                         
                         <!-- Meta Info -->
-                        <div class="flex items-center gap-2 text-xs text-gray-400 mt-1">
+                        <div class="flex flex-wrap items-center gap-2 text-xs text-gray-400 mt-1">
                             <span>{{ post.author.nickname or post.author.username }}</span>
+                            {% if post.author.is_bot %}
+                            <span class="rounded bg-sky-50 px-1.5 py-0.5 font-medium text-sky-700">AI experiment</span>
+                            {% endif %}
                             <span>·</span>
                             <span>{{ (post.created_at | sgt).strftime('%m-%d %H:%M') }}</span>
                             {% if post.category != 'general' %}

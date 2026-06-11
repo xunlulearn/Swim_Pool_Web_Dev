@@ -1,0 +1,23 @@
+name: Community Bot Posts
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call community bot cron endpoint
+        env:
+          COMMUNITY_BOT_CRON_URL: ${{ secrets.COMMUNITY_BOT_CRON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          test -n "$COMMUNITY_BOT_CRON_URL"
+          test -n "$CRON_SECRET"
+          curl --fail --show-error --silent \
+            --max-time 25 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$COMMUNITY_BOT_CRON_URL"
