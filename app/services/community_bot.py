@@ -132,7 +132,8 @@ def _day_bounds_utc(day):
     return start_utc, start_utc + timedelta(days=1)
 
 
-def ensure_bot_accounts():
+def ensure_bot_accounts(now=None):
+    now = now or datetime.utcnow()
     created = 0
     updated = 0
 
@@ -166,7 +167,7 @@ def ensure_bot_accounts():
                 archetype=archetype,
                 voice=voice,
                 enabled=True,
-                next_run_at=datetime.utcnow(),
+                next_run_at=now,
             )
             db.session.add(account)
             created += 1
@@ -244,7 +245,7 @@ def _schedule_next_run(account, now):
 
 def run_community_post_tick(now=None):
     now = now or datetime.utcnow()
-    ensure_bot_accounts()
+    ensure_bot_accounts(now=now)
     plan = get_or_create_daily_plan(now=now)
     posted_count = _posted_count_for_day(plan.day)
 

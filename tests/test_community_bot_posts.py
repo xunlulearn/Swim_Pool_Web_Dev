@@ -62,6 +62,22 @@ def test_community_post_tick_creates_post_and_activity_log(app):
         assert BotActivityLog.query.filter_by(status='posted', post_id=post.id).count() == 1
 
 
+def test_first_community_post_tick_seeds_accounts_and_posts(app):
+    from app.models.bot import BotActivityLog
+    from app.services.community_bot import run_community_post_tick
+
+    now = datetime(2026, 6, 11, 10, 30, 0)
+
+    with app.app_context():
+        result = run_community_post_tick(now=now)
+
+        assert result['ok'] is True
+        assert result['action'] == 'posted'
+        assert User.query.filter_by(is_bot=True).count() == 50
+        assert Post.query.count() == 1
+        assert BotActivityLog.query.filter_by(status='posted').count() == 1
+
+
 def test_community_post_cron_requires_secret(client):
     response = client.get('/api/cron/community-posts')
 
