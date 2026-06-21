@@ -77,10 +77,12 @@
                 <div class="flex items-start gap-3">
                     <!-- Avatar -->
                     <div class="w-10 h-10 bg-slate-100 rounded-full flex-shrink-0 flex items-center justify-center text-slate-600 font-bold overflow-hidden">
-                        {% if post.author.avatar %}
-                            <img src="data:{{ post.author.avatar_mimetype }};base64,{{ post.author.avatar | b64encode }}" alt="Avatar" class="w-full h-full object-cover">
+                        {% if post.author.avatar_mimetype %}
+                            <img src="{{ url_for('social.user_avatar', user_id=post.author_id) }}" alt="Avatar" class="w-full h-full object-cover" loading="lazy" decoding="async">
+                        {% elif post.author.avatar_url %}
+                            <img src="{{ post.author.avatar_url }}" alt="Avatar" class="w-full h-full object-cover" loading="lazy" decoding="async">
                         {% else %}
-                            {{ post.author.username[0] | upper }}
+                            {{ (post.author.nickname or post.author.username)[0] | upper }}
                         {% endif %}
                     </div>
                     
@@ -91,9 +93,6 @@
                         <!-- Meta Info -->
                         <div class="flex flex-wrap items-center gap-2 text-xs text-gray-400 mt-1">
                             <span>{{ post.author.nickname or post.author.username }}</span>
-                            {% if post.author.is_bot %}
-                            <span class="rounded bg-sky-50 px-1.5 py-0.5 font-medium text-sky-700">AI experiment</span>
-                            {% endif %}
                             <span>·</span>
                             <span>{{ (post.created_at | sgt).strftime('%m-%d %H:%M') }}</span>
                             {% if post.category != 'general' %}
@@ -106,17 +105,21 @@
                         
                         <!-- Body Preview -->
                         <p class="text-slate-600 text-sm mt-2 line-clamp-2">{{ post.body[:120] }}{% if post.body|length > 120 %}...{% endif %}</p>
-                        {% if post.image %}
+                        {% if post.image_mimetype %}
                         <img
-                            src="data:{{ post.image_mimetype }};base64,{{ post.image | b64encode }}"
+                            src="{{ url_for('social.post_image', post_id=post.id) }}"
                             alt="Post image preview"
                             class="mt-3 max-h-56 w-full object-cover rounded-lg border border-gray-100 bg-slate-50"
+                            loading="lazy"
+                            decoding="async"
                         >
                         {% elif post.image_url %}
                         <img
                             src="{{ post.image_url }}"
                             alt="Post image preview"
                             class="mt-3 max-h-56 w-full object-cover rounded-lg border border-gray-100 bg-slate-50"
+                            loading="lazy"
+                            decoding="async"
                         >
                         {% endif %}
 
@@ -126,13 +129,13 @@
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"></path>
                                 </svg>
-                                {{ post.likes.count() }}
+                                {{ like_counts.get(post.id, 0) }}
                             </span>
                             <span class="flex items-center gap-1">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
                                 </svg>
-                                {{ post.comments.filter_by(is_deleted=False).count() }}
+                                {{ comment_counts.get(post.id, 0) }}
                             </span>
                             <span class="flex items-center gap-1">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -158,7 +161,7 @@
 
     <!-- Pagination -->
     {% if pagination and pagination.pages > 1 %}
-    <div class="flex justify-center items-center gap-2 mt-6">
+    <div class="flex flex-wrap justify-center items-center gap-2 mt-6">
         {% if pagination.has_prev %}
         <a href="{{ url_for('social.feed', category=current_category, page=pagination.prev_num) }}" 
            class="px-4 py-2 bg-white rounded-lg border border-gray-200 hover:bg-gray-50 transition text-sm">
@@ -169,6 +172,26 @@
         <span class="px-4 py-2 text-sm text-gray-600">
             Page {{ pagination.page }} / {{ pagination.pages }}
         </span>
+
+        <form action="{{ url_for('social.feed') }}" method="get" class="flex items-center gap-2">
+            <input type="hidden" name="category" value="{{ current_category }}">
+            <label for="feed-page-jump" class="sr-only">Jump to page</label>
+            <input
+                id="feed-page-jump"
+                type="number"
+                name="page"
+                min="1"
+                max="{{ pagination.pages }}"
+                value="{{ pagination.page }}"
+                class="h-9 w-20 rounded-lg border border-gray-200 bg-white px-3 text-sm text-slate-700 focus:border-ntu-blue focus:outline-none focus:ring-2 focus:ring-ntu-blue/20"
+            >
+            <button
+                type="submit"
+                class="h-9 px-3 rounded-lg border border-gray-200 bg-white text-sm font-medium text-slate-600 hover:bg-gray-50 transition"
+            >
+                Go
+            </button>
+        </form>
         
         {% if pagination.has_next %}
         <a href="{{ url_for('social.feed', category=current_category, page=pagination.next_num) }}" 

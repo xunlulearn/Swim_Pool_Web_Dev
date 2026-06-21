@@ -12,29 +12,69 @@ from app.services.weather_engine import weather_engine
 SGT_OFFSET = timedelta(hours=8)
 DAILY_MIN_POSTS = 2
 DAILY_MAX_POSTS = 6
+BOT_AVATAR_COLORS = (
+    'f6bd60',
+    'f28482',
+    '84a59d',
+    '90dbf4',
+    'a3c4f3',
+    'cfbaf0',
+    'ffcfd2',
+    'b9fbc0',
+    'fde68a',
+    'fca5a5',
+)
+BOT_AVATAR_SOURCES = (
+    ('dicebear', 'pixel-art'),
+    ('loremflickr', 'landscape'),
+    ('dicebear', 'shapes'),
+    ('loremflickr', 'cat'),
+    ('dicebear', 'thumbs'),
+    ('picsum', 'photo'),
+    ('dicebear', 'icons'),
+    ('loremflickr', 'dog'),
+    ('dicebear', 'glass'),
+    ('loremflickr', 'ocean'),
+    ('dicebear', 'identicon'),
+    ('loremflickr', 'bird'),
+    ('dicebear', 'pixel-art-neutral'),
+    ('loremflickr', 'mountain'),
+    ('dicebear', 'rings'),
+    ('loremflickr', 'flower'),
+    ('dicebear', 'shape-grid'),
+    ('loremflickr', 'forest'),
+    ('dicebear', 'glass'),
+    ('loremflickr', 'waterfall'),
+    ('picsum', 'photo'),
+    ('loremflickr', 'sky'),
+    ('dicebear', 'triangles'),
+    ('loremflickr', 'garden'),
+    ('dicebear', 'thumbs'),
+    ('loremflickr', 'animal'),
+)
 
 
 BOT_PERSONAS = [
-    ('avery_laps', 'Avery Tan', 'squad', 'casual planner who likes evening laps'),
-    ('ben_easy_pace', 'Ben Lim', 'squad', 'beginner-friendly lane buddy'),
-    ('chloe_kickboard', 'Chloe Ng', 'tutorial', 'patient technique note-taker'),
-    ('daniel_src', 'Daniel Koh', 'general', 'regular who asks practical pool questions'),
-    ('emily_splits', 'Emily Wong', 'tutorial', 'pace-focused swimmer'),
-    ('farah_swims', 'Farah Rahman', 'squad', 'friendly meetup organizer'),
-    ('gabriel_lane4', 'Gabriel Lee', 'general', 'quiet weekday swimmer'),
-    ('hannah_pullbuoy', 'Hannah Chia', 'tutorial', 'shares small drills'),
-    ('isaac_afterclass', 'Isaac Goh', 'squad', 'after-class swim buddy'),
-    ('jasmine_poolbag', 'Jasmine Teo', 'lostfound', 'keeps an eye on lost items'),
-    ('kai_warmup', 'Kai Chen', 'tutorial', 'warmup and recovery voice'),
-    ('leah_morning', 'Leah Tan', 'squad', 'morning swim regular'),
-    ('marcus_ntu', 'Marcus Ong', 'general', 'asks about crowd and lane conditions'),
-    ('nina_freestyle', 'Nina Ho', 'tutorial', 'freestyle learner'),
-    ('owen_sprints', 'Owen Yap', 'squad', 'short-set swimmer'),
-    ('priya_lanes', 'Priya Menon', 'general', 'friendly community checker'),
-    ('quentin_pool', 'Quentin Low', 'lostfound', 'lost-and-found reminder'),
-    ('rachel_easy', 'Rachel Seah', 'squad', 'easy pace organizer'),
-    ('sam_strokes', 'Sam Tan', 'tutorial', 'stroke basics sharer'),
-    ('tessa_src', 'Tessa Lim', 'general', 'weather-aware pool regular'),
+    ('avery_laps', '小瓶盖', 'squad', '晚课后约轻松游的中文校园搭子'),
+    ('ben_easy_pace', '抹茶布丁', 'squad', '适合新手游泳的中文约伴号'),
+    ('chloe_kickboard', '年少寻梦', 'tutorial', '耐心记录训练小技巧的中文身份'),
+    ('daniel_src', '森予清风', 'general', '常问泳池实用信息的中文同学'),
+    ('emily_splits', '云端打卡', 'tutorial', '喜欢记录配速和小目标的中文身份'),
+    ('farah_swims', '月亮邮递员', 'squad', '温和组织结伴游泳的中文同学'),
+    ('gabriel_lane4', '小胜同学', 'general', '课间关注泳池人流的中文身份'),
+    ('hannah_pullbuoy', '风吹少女心', 'tutorial', '分享轻量练习提醒的中文身份'),
+    ('isaac_afterclass', '半袖桃花', 'squad', '下课后找游泳搭子的中文同学'),
+    ('jasmine_poolbag', '持伞猫', 'lostfound', '帮忙提醒失物招领的中文身份'),
+    ('kai_warmup', '晨风暖', 'tutorial', '喜欢热身和恢复建议的中文身份'),
+    ('leah_morning', '山有木兮', 'squad', '早场游泳常客的中文同学'),
+    ('marcus_ntu', '南方有梦', 'general', '关心泳道拥挤度的中文身份'),
+    ('nina_freestyle', '一夜听春雨', 'tutorial', '学习自由泳技巧的中文身份'),
+    ('owen_sprints', '元气小坏坏', 'squad', '喜欢短组训练的中文同学'),
+    ('priya_lanes', '远山迷雾', 'general', '友好询问泳池状态的中文身份'),
+    ('quentin_pool', '青藤之凉', 'lostfound', '发布失物提醒的中文身份'),
+    ('rachel_easy', '浅色夏沫', 'squad', '组织轻松配速的中文同学'),
+    ('sam_strokes', '橘子海盐', 'tutorial', '分享基础泳姿心得的中文身份'),
+    ('tessa_src', '课后去游泳', 'general', '会看天气再去泳池的中文同学'),
     ('umar_laps', 'Umar Aziz', 'squad', 'steady lap partner'),
     ('vivian_swim', 'Vivian Foo', 'tutorial', 'beginner tip collector'),
     ('wayne_goggles', 'Wayne Neo', 'lostfound', 'gear and locker reminder'),
@@ -66,6 +106,9 @@ BOT_PERSONAS = [
     ('xavier_tempo', 'Xavier Yeo', 'tutorial', 'tempo and pacing voice'),
     ('zoe_src', 'Zoe Tan', 'general', 'friendly check-in poster'),
 ]
+
+
+CHINESE_PERSONA_KEYS = frozenset(persona[0] for persona in BOT_PERSONAS[:20])
 
 
 POST_TEMPLATES = {
@@ -124,6 +167,74 @@ POST_TEMPLATES = {
 }
 
 
+CHINESE_POST_TEMPLATES = {
+    'general': [
+        (
+            '今天 SRC 泳池人多吗？',
+            '想晚点去轻松游几圈，不太想赶在人最多的时候。有没有刚路过的同学可以说一下泳道情况？'
+        ),
+        (
+            '下午泳池状态小问',
+            '看天气好像还可以，如果雨不大就想去一趟。有人知道现在池边人多不多、适不适合慢慢游吗？'
+        ),
+        (
+            '最近哪个时段比较舒服？',
+            '想找一个不用太赶的时间练基础动作。大家觉得午后、傍晚还是晚饭后更适合放松游？'
+        ),
+    ],
+    'squad': [
+        (
+            '晚饭后有人一起轻松游吗？',
+            '我大概想游 30 分钟左右，慢速也没关系，中间休息也可以。想找一个不卷的搭子一起下水。'
+        ),
+        (
+            '新手友好泳道搭子招募',
+            '有没有同学想组个随缘小队？主要是互相提醒坚持一下，游累了停下来聊天也完全可以。'
+        ),
+        (
+            '今晚简单游几组？',
+            '准备先热身几趟，再游几个轻松 50 米，最后慢慢放松。有人时间差不多的话可以一起。'
+        ),
+    ],
+    'tutorial': [
+        (
+            '自由泳换气小心得',
+            '最近发现不要憋到最后一秒再换气会舒服很多，水下慢慢吐气，抬头那一下就没那么慌。'
+        ),
+        (
+            '打腿练习提醒',
+            '拿浮板慢慢打几趟其实挺有用的，重点不是水花大，而是动作小一点、节奏稳一点。'
+        ),
+        (
+            '短时间游泳也要热身',
+            '就算只游半小时，我也会先慢慢游四趟再加一点速度。身体打开之后，后面会顺很多。'
+        ),
+    ],
+    'lostfound': [
+        (
+            '泳池失物招领提醒',
+            '如果今天有人看到泳镜、泳帽或者毛巾落在池边，可以顺手在这里说一声，失主应该会很感谢。'
+        ),
+        (
+            '离开前记得看一眼长椅',
+            '游完最容易忘小东西了，尤其是泳镜和帽子。大家走之前可以多检查一下包和淋浴区。'
+        ),
+    ],
+}
+
+
+def _bot_avatar_url(persona_key, index):
+    source, style = BOT_AVATAR_SOURCES[index % len(BOT_AVATAR_SOURCES)]
+    seed = f'ntupool-{persona_key}'
+    if source == 'picsum':
+        return f'https://picsum.photos/seed/{seed}/96/96'
+    if source == 'loremflickr':
+        return f'https://loremflickr.com/96/96/{style}?lock={1000 + index}'
+
+    background = BOT_AVATAR_COLORS[index % len(BOT_AVATAR_COLORS)]
+    return f'https://api.dicebear.com/10.x/{style}/svg?seed={seed}&backgroundColor={background}&radius=50'
+
+
 def _sgt_day(now):
     return (now + SGT_OFFSET).date().isoformat()
 
@@ -139,7 +250,7 @@ def ensure_bot_accounts(now=None):
     created = 0
     updated = 0
 
-    for persona_key, display_name, archetype, voice in BOT_PERSONAS:
+    for index, (persona_key, display_name, archetype, voice) in enumerate(BOT_PERSONAS):
         username = f'bot_{persona_key}'
         email = f'{username}@ntupool.local'
         user = User.query.filter_by(username=username).first()
@@ -159,6 +270,7 @@ def ensure_bot_accounts(now=None):
             user.is_bot = True
             user.bot_persona = persona_key
             user.nickname = display_name
+        user.avatar_url = _bot_avatar_url(persona_key, index)
 
         account = BotAccount.query.filter_by(persona_key=persona_key).first()
         if account is None:
@@ -235,7 +347,8 @@ def _select_account(now):
 
 
 def _build_post(account):
-    templates = POST_TEMPLATES.get(account.archetype) or POST_TEMPLATES['general']
+    template_source = CHINESE_POST_TEMPLATES if account.persona_key in CHINESE_PERSONA_KEYS else POST_TEMPLATES
+    templates = template_source.get(account.archetype) or template_source['general']
     title, body = random.choice(templates)
     return title, body
 

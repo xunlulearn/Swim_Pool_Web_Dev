@@ -16,8 +16,10 @@
                 <div class="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold overflow-hidden">
                     {% if conv.user.avatar %}
                         <img src="data:{{ conv.user.avatar_mimetype }};base64,{{ conv.user.avatar | b64encode }}" alt="Avatar" class="w-full h-full object-cover">
+                    {% elif conv.user.avatar_url %}
+                        <img src="{{ conv.user.avatar_url }}" alt="Avatar" class="w-full h-full object-cover" loading="lazy" decoding="async">
                     {% else %}
-                        {{ conv.user.username[0] | upper }}
+                        {{ (conv.user.nickname or conv.user.username)[0] | upper }}
                     {% endif %}
                 </div>
                 

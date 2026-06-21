@@ -48,6 +48,12 @@ def test_classify_intent_uses_model_json():
     assert intent == graph_module.INTENT_DATABASE
 
 
+def test_rag_prompt_hides_internal_context_labels():
+    assert "Do not mention reference context numbers" in graph_module.RAG_SYSTEM_PROMPT
+    assert "Do not answer with only one word" in graph_module.RAG_SYSTEM_PROMPT
+    assert "If a live metric is unknown" in graph_module.RAG_SYSTEM_PROMPT
+
+
 def test_classify_intent_falls_back_to_heuristics_on_invalid_json():
     intent = graph_module._classify_intent(
         "hello there",
@@ -134,6 +140,68 @@ def test_graph_small_talk_skips_retrieval(monkeypatch):
     assert result["quick_questions"] == []
 
 
+def test_graph_capability_question_returns_domain_answer_without_generic_identity(monkeypatch):
+    def _should_not_search(_store, _question, _top_k):
+        raise AssertionError("retrieval should not run for assistant capability questions")
+
+    monkeypatch.setattr(graph_module, "_search_with_optional_scores", _should_not_search)
+
+    llm = _FakeLLM(reply="I am a large language model, trained by Google.")
+    intent_llm = _IntentLLM('{"intent":"small_talk","reason":"asks about assistant ability"}')
+    rag_app = graph_module._build_graph(
+        llm=llm,
+        intent_llm=intent_llm,
+        vector_store=object(),
+        top_k=3,
+        min_score=0.65,
+        max_context_chars=4000,
+        db_tool_max_calls=3,
+    )
+
+    result = rag_app.invoke({"question": "What can you do?"})
+
+    assert "NTU Pool" in result["answer"]
+    assert "Google" not in result["answer"]
+    assert result.get("sources", []) == []
+    assert result["quick_questions"] == [
+        "Can I go swimming now?",
+        "How does lightning affect pool status?",
+        "How can I submit a manual pool report?",
+    ]
+
+
+def test_graph_chinese_capability_question_routes_to_domain_answer(monkeypatch):
+    monkeypatch.setattr(graph_module, "_search_with_optional_scores", lambda _s, _q, _k: [])
+    monkeypatch.setattr(
+        graph_module,
+        "_translate_to_english",
+        lambda question, intent_llm, qa_llm: "What can you do?",
+    )
+    monkeypatch.setattr(
+        graph_module,
+        "_translate_from_english",
+        lambda text, target_language, llm: text,
+    )
+
+    llm = _FakeLLM(reply="I am a large language model, trained by Google.")
+    intent_llm = _IntentLLM('{"intent":"small_talk","reason":"asks about assistant ability"}')
+    rag_app = graph_module._build_graph(
+        llm=llm,
+        intent_llm=intent_llm,
+        vector_store=object(),
+        top_k=3,
+        min_score=0.65,
+        max_context_chars=4000,
+        db_tool_max_calls=3,
+    )
+
+    result = rag_app.invoke({"question": "\u4f60\u80fd\u505a\u4ec0\u4e48\uff1f"})
+
+    assert "NTU Pool" in result["answer"]
+    assert "Google" not in result["answer"]
+    assert result["quick_questions"][0] == "\u73b0\u5728\u9002\u5408\u53bb\u6e38\u6cf3\u5417\uff1f"
+
+
 def test_graph_knowledge_base_path_returns_unknown_when_no_context(monkeypatch):
     monkeypatch.setattr(graph_module, "_search_with_optional_scores", lambda _s, _q, _k: [])
 
@@ -182,6 +250,112 @@ def test_graph_knowledge_base_path_uses_retrieved_context(monkeypatch):
     assert result["answer"] == "KB answer"
     assert result["sources"] == ["https://ntupool.org/"]
     assert result["quick_questions"] == []
+
+
+def test_graph_uses_homepage_context_for_live_pool_decision(monkeypatch):
+    monkeypatch.setattr(graph_module, "_search_with_optional_scores", lambda _s, _q, _k: [])
+
+    llm = _FakeLLM(reply="The pool is open, and lightning risk is low, so it is reasonable to go.")
+    intent_llm = _IntentLLM('{"intent":"fallback","reason":"decision request"}')
+    rag_app = graph_module._build_graph(
+        llm=llm,
+        intent_llm=intent_llm,
+        vector_store=object(),
+        top_k=3,
+        min_score=0.65,
+        max_context_chars=4000,
+        db_tool_max_calls=3,
+    )
+
+    result = rag_app.invoke(
+        {
+            "question": "\u73b0\u5728\u9002\u5408\u53bb\u6cf3\u6c60\u5417\uff1f",
+            "page_context": [
+                "Current homepage status: OPEN.",
+                "Nearest lightning: >15km.",
+                "Lightning trend 20 min <= 15 km total: 0 strikes.",
+            ],
+        }
+    )
+
+    assert "reasonable to go" in result["answer"]
+    assert result["sources"] == ["app://homepage/live-status"]
+    assert "Current homepage status: OPEN." in llm.calls[0][-1].content
+
+
+def test_graph_live_pool_decision_overrides_model_small_talk(monkeypatch):
+    monkeypatch.setattr(graph_module, "_search_with_optional_scores", lambda _s, _q, _k: [])
+    monkeypatch.setattr(
+        graph_module,
+        "_translate_to_english",
+        lambda question, intent_llm, qa_llm: "Is the pool open right now? Can I go swimming now?",
+    )
+    monkeypatch.setattr(
+        graph_module,
+        "_translate_from_english",
+        lambda text, target_language, llm: text,
+    )
+
+    llm = _FakeLLM(reply="Use the current homepage status and lightning trend before going.")
+    intent_llm = _IntentLLM('{"intent":"small_talk","reason":"friendly phrasing"}')
+    rag_app = graph_module._build_graph(
+        llm=llm,
+        intent_llm=intent_llm,
+        vector_store=object(),
+        top_k=3,
+        min_score=0.65,
+        max_context_chars=4000,
+        db_tool_max_calls=3,
+    )
+
+    result = rag_app.invoke(
+        {
+            "question": "\u5f53\u524d\u6cf3\u6c60\u5f00\u653e\u5417\uff1f\u6211\u73b0\u5728\u53ef\u4ee5\u8fc7\u53bb\u6e38\u6cf3\u5417\uff1f",
+            "page_context": ["Current homepage pool status: GREEN (Open)."],
+        }
+    )
+
+    assert result["sources"] == ["app://homepage/live-status"]
+    assert "current homepage pool status" in llm.calls[0][-1].content.lower()
+
+
+def test_graph_page_context_routes_time_followup_to_live_status(monkeypatch):
+    monkeypatch.setattr(graph_module, "_search_with_optional_scores", lambda _s, _q, _k: [])
+    monkeypatch.setattr(
+        graph_module,
+        "_translate_to_english",
+        lambda question, intent_llm, qa_llm: "I plan to go there in 30 minutes. What changes should I watch?",
+    )
+    monkeypatch.setattr(
+        graph_module,
+        "_translate_from_english",
+        lambda text, target_language, llm: text,
+    )
+
+    llm = _FakeLLM(reply="Watch the pool status, lightning distance, and 20-minute lightning trend.")
+    intent_llm = _IntentLLM('{"intent":"fallback","reason":"ambiguous follow-up"}')
+    rag_app = graph_module._build_graph(
+        llm=llm,
+        intent_llm=intent_llm,
+        vector_store=object(),
+        top_k=3,
+        min_score=0.65,
+        max_context_chars=4000,
+        db_tool_max_calls=3,
+    )
+
+    result = rag_app.invoke(
+        {
+            "question": "\u6211\u51c6\u590730\u5206\u949f\u540e\u8fc7\u53bb\uff0c\u9700\u8981\u91cd\u70b9\u770b\u54ea\u4e9b\u72b6\u6001\u53d8\u5316\uff1f",
+            "page_context": [
+                "Current homepage pool status: GREEN (Open).",
+                "Lightning trend chart total for Last 20 Minutes: <=15 km 0 strikes, <=30 km 0 strikes.",
+            ],
+        }
+    )
+
+    assert result["sources"] == ["app://homepage/live-status"]
+    assert "Lightning trend chart total" in llm.calls[0][-1].content
 
 
 def test_graph_known_answer_does_not_return_quick_questions_for_zh(monkeypatch):

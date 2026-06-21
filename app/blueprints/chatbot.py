@@ -29,6 +29,8 @@ MAX_MESSAGE_LENGTH = 2000
 FEEDBACK_INTERVAL = 5
 MAX_USER_AGENT_LENGTH = 500
 MAX_FEEDBACK_COMMENT_LENGTH = 500
+MAX_PAGE_CONTEXT_ITEMS = 12
+MAX_PAGE_CONTEXT_ITEM_LENGTH = 500
 DEFAULT_CHAT_LOG_TABLE = "chatbot_conversations"
 DEFAULT_UNKNOWN_REPLY = (
     "\u62b1\u6b49\uff0c\u6211\u6682\u65f6\u65e0\u6cd5\u4ece\u5b98\u7f51\u5185\u5bb9\u4e2d"
@@ -147,14 +149,199 @@ def _extract_message_from_request():
     return message, None
 
 
-def _build_chat_response_payload(message: str):
+def _append_context_line(lines: list[str], text: str) -> None:
+    value = str(text or "").strip()
+    if not value:
+        return
+    if len(value) > MAX_PAGE_CONTEXT_ITEM_LENGTH:
+        value = value[: MAX_PAGE_CONTEXT_ITEM_LENGTH - 1] + "..."
+    if value not in lines and len(lines) < MAX_PAGE_CONTEXT_ITEMS:
+        lines.append(value)
+
+
+def _normalize_client_page_context(raw_context) -> list[str]:
+    lines: list[str] = []
+    if isinstance(raw_context, str):
+        _append_context_line(lines, raw_context)
+        return lines
+    if isinstance(raw_context, list):
+        for item in raw_context:
+            if isinstance(item, str):
+                _append_context_line(lines, item)
+        return lines
+    if not isinstance(raw_context, dict):
+        return lines
+
+    selected_radius = str(raw_context.get("selected_lightning_radius") or "").strip()
+    selected_window = str(raw_context.get("selected_lightning_window") or "").strip()
+    if selected_radius or selected_window:
+        _append_context_line(
+            lines,
+            (
+                "User is viewing lightning trend filters: "
+                f"radius={selected_radius or 'unknown'}, window={selected_window or 'unknown'}."
+            ),
+        )
+
+    for key in ("status_text", "status_message", "nearest_lightning", "lightning_count", "rainfall"):
+        value = raw_context.get(key)
+        if isinstance(value, str) and value.strip():
+            label = key.replace("_", " ").title()
+            _append_context_line(lines, f"Visible homepage {label}: {value.strip()}.")
+
+    trend_summary = raw_context.get("lightning_trend_summary")
+    if isinstance(trend_summary, str) and trend_summary.strip():
+        _append_context_line(lines, f"Visible lightning trend summary: {trend_summary.strip()}.")
+
+    return lines
+
+
+def _format_metric(value, fallback: str = "unknown") -> str:
+    if value is None or value == "":
+        return fallback
+    return str(value)
+
+
+def _first_present(*values):
+    for value in values:
+        if value is not None and value != "":
+            return value
+    return None
+
+
+def _chart_total(window_data: dict, key: str) -> int:
+    totals = window_data.get("totals") if isinstance(window_data, dict) else {}
+    if isinstance(totals, dict) and key in totals:
+        try:
+            return int(round(float(totals[key] or 0)))
+        except (TypeError, ValueError):
+            return 0
+    series_key = f"counts_{key}"
+    values = window_data.get(series_key, []) if isinstance(window_data, dict) else []
+    if not isinstance(values, list):
+        return 0
+    total = 0
+    for value in values:
+        try:
+            total += int(round(float(value or 0)))
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
+def _summarize_lightning_history(history_payload: dict) -> list[str]:
+    if not isinstance(history_payload, dict):
+        return []
+
+    lines: list[str] = []
+    observation_time = history_payload.get("observation_time_sgt")
+    if observation_time:
+        _append_context_line(lines, f"Lightning trend observation time (SGT): {observation_time}.")
+
+    charts = history_payload.get("charts")
+    if isinstance(charts, dict):
+        for window_key in ("20m", "1h", "12h"):
+            window_data = charts.get(window_key)
+            if not isinstance(window_data, dict):
+                continue
+            label = window_data.get("display_label") or window_key
+            total_15 = _chart_total(window_data, "15km")
+            total_30 = _chart_total(window_data, "30km")
+            _append_context_line(
+                lines,
+                (
+                    "Lightning trend chart total for "
+                    f"{label}: <=15 km {total_15} strikes, <=30 km {total_30} strikes."
+                ),
+            )
+
+    metadata = history_payload.get("metadata")
+    if isinstance(metadata, dict):
+        warning = metadata.get("warning") or metadata.get("error")
+        if warning:
+            _append_context_line(lines, f"Lightning trend data note: {warning}.")
+    return lines
+
+
+def _build_homepage_context(client_page_context=None) -> list[str]:
+    lines: list[str] = []
+    try:
+        from app.services.weather_engine import weather_engine
+
+        state, message, details = weather_engine.get_overall_status()
+        details = details if isinstance(details, dict) else {}
+        _append_context_line(
+            lines,
+            (
+                "Current homepage pool status: "
+                f"{getattr(state, 'name', state)} ({getattr(state, 'value', state)}). "
+                f"Message: {message}"
+            ),
+        )
+        _append_context_line(
+            lines,
+            (
+                "Decision guide: GREEN/OPEN means going is generally reasonable if onsite "
+                "lifeguards allow it; AMBER/WARNING means use caution and keep monitoring; "
+                "RED/CLOSED means do not enter the water, and users already at the pool "
+                "should leave the water and follow lifeguard instructions."
+            ),
+        )
+        _append_context_line(
+            lines,
+            (
+                "Lightning trend safety guide: if the lightning trend worsens, the chart "
+                "turns red, or lightning appears within 15 km, users at the pool should "
+                "leave the water immediately and follow lifeguard instructions; users "
+                "planning to go should wait and keep monitoring until conditions are safe."
+            ),
+        )
+        _append_context_line(
+            lines,
+            (
+                "Future visit guide: for a trip in the next 30 minutes, watch the homepage "
+                "pool status, nearest lightning distance, lightning count, 20-minute and "
+                "1-hour lightning trend totals for 15 km and 30 km, and rainfall rate before "
+                "leaving for the pool."
+            ),
+        )
+        _append_context_line(
+            lines,
+            (
+                "Current weather metrics: "
+                f"nearest lightning={_format_metric(_first_present(details.get('min_distance_km'), details.get('lightning_dist')))} km; "
+                f"lightning count={_format_metric(details.get('lightning_count'))}; "
+                f"rainfall={_format_metric(details.get('rainfall_rate'))} mm/h; "
+                f"observation time SGT={_format_metric(details.get('observation_time_sgt'))}."
+            ),
+        )
+        data_note = details.get("lightning_warning") or details.get("source_error")
+        if data_note:
+            _append_context_line(lines, f"Current weather data note: {data_note}.")
+
+        for history_line in _summarize_lightning_history(weather_engine.get_lightning_history()):
+            _append_context_line(lines, history_line)
+    except Exception:
+        current_app.logger.exception("Failed to build homepage context for chatbot.")
+
+    for line in _normalize_client_page_context(client_page_context):
+        _append_context_line(lines, line)
+    return lines
+
+
+def _build_chat_response_payload(message: str, client_page_context=None):
     try:
         rag_app = get_rag_app(
             top_k=current_app.config.get("CHATBOT_TOP_K"),
             min_score=current_app.config.get("CHATBOT_MIN_SCORE"),
             max_context_chars=current_app.config.get("CHATBOT_MAX_CONTEXT_CHARS"),
         )
-        result = rag_app.invoke({"question": message})
+        result = rag_app.invoke(
+            {
+                "question": message,
+                "page_context": _build_homepage_context(client_page_context),
+            }
+        )
     except ChatbotConfigError as exc:
         current_app.logger.warning("Chatbot configuration error: %s", exc)
         return None, ("Chatbot is not configured.", 503)
@@ -327,7 +514,11 @@ def chat():
         error_text, status_code = validation_error
         return jsonify({"error": error_text}), status_code
 
-    response_payload, error = _build_chat_response_payload(message)
+    payload = request.get_json(silent=True) or {}
+    response_payload, error = _build_chat_response_payload(
+        message,
+        payload.get("page_context") if isinstance(payload, dict) else None,
+    )
     if error is not None:
         error_text, status_code = error
         return jsonify({"error": error_text}), status_code
@@ -348,7 +539,11 @@ def chat_stream():
         # Emit a first frame immediately so the client can show active progress.
         yield _stream_event({"type": "status", "stage": "thinking"})
 
-        response_payload, error = _build_chat_response_payload(message)
+        payload = request.get_json(silent=True) or {}
+        response_payload, error = _build_chat_response_payload(
+            message,
+            payload.get("page_context") if isinstance(payload, dict) else None,
+        )
         if error is not None:
             error_text, status_code = error
             yield _stream_event({"type": "error", "error": error_text, "status_code": status_code})

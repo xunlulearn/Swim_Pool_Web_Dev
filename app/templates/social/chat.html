@@ -14,8 +14,10 @@
         <div class="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold overflow-hidden">
             {% if other_user.avatar %}
                 <img src="data:{{ other_user.avatar_mimetype }};base64,{{ other_user.avatar | b64encode }}" alt="Avatar" class="w-full h-full object-cover">
+            {% elif other_user.avatar_url %}
+                <img src="{{ other_user.avatar_url }}" alt="Avatar" class="w-full h-full object-cover" loading="lazy" decoding="async">
             {% else %}
-                {{ other_user.username[0] | upper }}
+                {{ (other_user.nickname or other_user.username)[0] | upper }}
             {% endif %}
         </div>
         <span class="font-medium text-slate-700">{{ other_user.nickname or other_user.username }}</span>

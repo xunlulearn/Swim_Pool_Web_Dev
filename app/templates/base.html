@@ -197,6 +197,8 @@
         data-login-url="{{ url_for('auth.login') }}"
         data-user-key="{{ ('user-' ~ current_user.id) if current_user.is_authenticated else 'guest' }}"
         data-locale="{{ request.accept_languages.best_match(['zh', 'en']) or 'en' }}"
+        data-starter-questions-en="Can I go swimming now?|How does lightning affect pool status?|How can I submit a manual pool report?"
+        data-starter-questions-zh="现在适合去游泳吗？|闪电会如何影响泳池状态？|我该如何提交手动泳池上报？"
     >
         <div class="rounded-t-2xl bg-gradient-to-r from-slate-900 via-slate-800 to-blue-900 px-4 py-3 text-white">
             <div class="flex items-start justify-between gap-3">
@@ -218,12 +220,12 @@
         </div>
 
         <div id="chatbot-thread" class="flex-1 space-y-3 overflow-y-auto bg-gradient-to-b from-slate-50 to-slate-100/70 px-4 py-4">
-            <div class="max-w-[90%] rounded-2xl rounded-bl-md border border-slate-200 bg-gradient-to-b from-white to-slate-50 px-3.5 py-2.5 text-sm text-slate-700 shadow-[0_12px_24px_-16px_rgba(15,23,42,0.45)]">
+            <div data-chatbot-welcome-bubble="1" class="max-w-[90%] rounded-2xl rounded-bl-md border border-slate-200 bg-gradient-to-b from-white to-slate-50 px-3.5 py-2.5 text-sm text-slate-700 shadow-[0_12px_24px_-16px_rgba(15,23,42,0.45)]">
                 <p class="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">NTU Pool Assistant</p>
                 {% if current_user.is_authenticated %}
-                Hi, ask me anything about NTU Pool.
+                Hi, I can help with live pool status, weather risk, opening hours, reports, and community posts.
                 {% else %}
-                Hi, please log in first. You can ask me anything after signing in.
+                Hi, please log in first. After signing in, I can help with pool status, weather risk, reports, and community posts.
                 {% endif %}
             </div>
         </div>
@@ -270,7 +272,7 @@
     </section>
 
     {% block scripts %}{% endblock %}
-    <script src="{{ url_for('static', filename='js/chatbot.js', v='20260220-1') }}"></script>
+    <script src="{{ url_for('static', filename='js/chatbot.js', v='20260613-1') }}"></script>
     <script>
         document.addEventListener("DOMContentLoaded", () => {
             const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute("content");

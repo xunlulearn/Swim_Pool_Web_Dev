@@ -35,25 +35,26 @@
                    class="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold overflow-hidden hover:ring-2 hover:ring-ntu-blue transition">
                     {% if post.author.avatar %}
                         <img src="data:{{ post.author.avatar_mimetype }};base64,{{ post.author.avatar | b64encode }}" alt="Avatar" class="w-full h-full object-cover">
+                    {% elif post.author.avatar_url %}
+                        <img src="{{ post.author.avatar_url }}" alt="Avatar" class="w-full h-full object-cover" loading="lazy" decoding="async">
                     {% else %}
-                        {{ post.author.username[0] | upper }}
+                        {{ (post.author.nickname or post.author.username)[0] | upper }}
                     {% endif %}
                 </a>
                 {% else %}
                 <div class="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold overflow-hidden">
                     {% if post.author.avatar %}
                         <img src="data:{{ post.author.avatar_mimetype }};base64,{{ post.author.avatar | b64encode }}" alt="Avatar" class="w-full h-full object-cover">
+                    {% elif post.author.avatar_url %}
+                        <img src="{{ post.author.avatar_url }}" alt="Avatar" class="w-full h-full object-cover" loading="lazy" decoding="async">
                     {% else %}
-                        {{ post.author.username[0] | upper }}
+                        {{ (post.author.nickname or post.author.username)[0] | upper }}
                     {% endif %}
                 </div>
                 {% endif %}
                 <div>
                     <div class="flex flex-wrap items-center gap-2">
                         <span class="font-medium text-slate-700">{{ post.author.nickname or post.author.username }}</span>
-                        {% if post.author.is_bot %}
-                        <span class="rounded bg-sky-50 px-1.5 py-0.5 text-xs font-medium text-sky-700">AI experiment</span>
-                        {% endif %}
                     </div>
                     <div class="text-xs text-gray-400">
                         {{ (post.created_at | sgt).strftime('%Y-%m-%d %H:%M') }}
@@ -170,16 +171,20 @@
                        class="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold text-sm overflow-hidden hover:ring-2 hover:ring-ntu-blue transition">
                         {% if comment.author.avatar %}
                             <img src="data:{{ comment.author.avatar_mimetype }};base64,{{ comment.author.avatar | b64encode }}" alt="Avatar" class="w-full h-full object-cover">
+                        {% elif comment.author.avatar_url %}
+                            <img src="{{ comment.author.avatar_url }}" alt="Avatar" class="w-full h-full object-cover" loading="lazy" decoding="async">
                         {% else %}
-                            {{ comment.author.username[0] | upper }}
+                            {{ (comment.author.nickname or comment.author.username)[0] | upper }}
                         {% endif %}
                     </a>
                     {% else %}
                     <div class="w-8 h-8 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold text-sm overflow-hidden">
                         {% if comment.author.avatar %}
                             <img src="data:{{ comment.author.avatar_mimetype }};base64,{{ comment.author.avatar | b64encode }}" alt="Avatar" class="w-full h-full object-cover">
+                        {% elif comment.author.avatar_url %}
+                            <img src="{{ comment.author.avatar_url }}" alt="Avatar" class="w-full h-full object-cover" loading="lazy" decoding="async">
                         {% else %}
-                            {{ comment.author.username[0] | upper }}
+                            {{ (comment.author.nickname or comment.author.username)[0] | upper }}
                         {% endif %}
                     </div>
                     {% endif %}
@@ -283,8 +288,10 @@
                         <div class="w-6 h-6 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-bold text-xs overflow-hidden">
                             {% if reply.author.avatar %}
                                 <img src="data:{{ reply.author.avatar_mimetype }};base64,{{ reply.author.avatar | b64encode }}" alt="Avatar" class="w-full h-full object-cover">
+                            {% elif reply.author.avatar_url %}
+                                <img src="{{ reply.author.avatar_url }}" alt="Avatar" class="w-full h-full object-cover" loading="lazy" decoding="async">
                             {% else %}
-                                {{ reply.author.username[0] | upper }}
+                                {{ (reply.author.nickname or reply.author.username)[0] | upper }}
                             {% endif %}
                         </div>
                         <div class="flex-grow">

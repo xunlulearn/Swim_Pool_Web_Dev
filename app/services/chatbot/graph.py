@@ -25,11 +25,13 @@ from supabase import create_client
 INTENT_SMALL_TALK = "small_talk"
 INTENT_DATABASE = "database"
 INTENT_KNOWLEDGE_BASE = "knowledge_base"
+INTENT_CAPABILITY = "capability"
 INTENT_FALLBACK = "fallback"
 VALID_INTENTS = {
     INTENT_SMALL_TALK,
     INTENT_DATABASE,
     INTENT_KNOWLEDGE_BASE,
+    INTENT_CAPABILITY,
     INTENT_FALLBACK,
 }
 
@@ -37,6 +39,12 @@ RAG_SYSTEM_PROMPT = (
     "You are the official customer assistant for NTU Pool (ntupool.org). "
     "Answer strictly from the provided reference context only. "
     "If the context is insufficient, clearly say you do not know and suggest checking ntupool.org. "
+    "Do not mention reference context numbers or internal context labels. "
+    "For live pool decision questions, answer directly with go, wait, leave water, or keep monitoring, "
+    "then cite the relevant status, lightning, trend, and rainfall facts. "
+    "Do not answer with only one word; include a brief reason and the next action. "
+    "If a live metric is unknown, say which metric is unavailable and still use any known pool status, "
+    "trend, rainfall, and operating-hours facts to guide the user. "
     "Always reply in English."
 )
 
@@ -52,8 +60,9 @@ INTENT_SYSTEM_PROMPT = (
     '- "small_talk": greeting/chitchat/emotion with no factual query.\n'
     '- "database": asks about dynamic app database records: community posts/comments/likes/collections/manual pool reports.\n'
     '- "knowledge_base": asks about ntupool.org website knowledge, policies, operations, weather/source rules, or app feature rules documented in KB.\n'
+    '- "capability": asks what this assistant can do, what to ask, or how it can help on ntupool.org.\n'
     '- "fallback": anything outside scope or unclear.\n\n'
-    'Return exactly this schema: {"intent":"small_talk|database|knowledge_base|fallback","reason":"short reason"}.\n'
+    'Return exactly this schema: {"intent":"small_talk|database|knowledge_base|capability|fallback","reason":"short reason"}.\n'
     "Do not answer the user question."
 )
 
@@ -140,6 +149,20 @@ GREETING_QUICK_QUESTIONS_EN = [
     "What are the pool opening hours on weekdays and weekends?",
 ]
 
+STARTER_QUICK_QUESTIONS_EN = [
+    "Can I go swimming now?",
+    "How does lightning affect pool status?",
+    "How can I submit a manual pool report?",
+]
+
+CAPABILITY_ANSWER_EN = (
+    "I am the NTU Pool Assistant for ntupool.org. I can help with live pool status, "
+    "whether it is sensible to go swimming now, lightning and rainfall risk, opening hours, "
+    "manual pool reports, community posts, account usage, and swimming-related website rules. "
+    "For current safety decisions, I use the homepage status, lightning trend, rainfall, and "
+    "operating-hours context when it is available. Always follow on-site lifeguard instructions."
+)
+
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 FAQ_MARKDOWN_PATH = PROJECT_ROOT / "knowledge_base" / "faq.md"
 FAQ_QUESTION_LINE_RE = re.compile(r"^\s*###\s*Q:\s*(.+?)\s*$")
@@ -178,6 +201,8 @@ WEATHER_QUICK_QUESTIONS_EN = [
 
 QUICK_QUESTION_ZH_MAP = {
     "Is the pool open right now?": "\u73b0\u5728\u6cf3\u6c60\u5f00\u653e\u5417\uff1f",
+    "Can I go swimming now?": "\u73b0\u5728\u9002\u5408\u53bb\u6e38\u6cf3\u5417\uff1f",
+    "How does lightning affect pool status?": "\u95ea\u7535\u4f1a\u5982\u4f55\u5f71\u54cd\u6cf3\u6c60\u72b6\u6001\uff1f",
     "How can I submit a manual pool report?": "\u6211\u8be5\u5982\u4f55\u63d0\u4ea4\u624b\u52a8\u6cf3\u6c60\u4e0a\u62a5\uff1f",
     "What are the pool opening hours on weekdays and weekends?": "\u5de5\u4f5c\u65e5\u548c\u5468\u672b\u7684\u6cf3\u6c60\u5f00\u653e\u65f6\u95f4\u662f\u4ec0\u4e48\uff1f",
     "How does the lightning warning rule work?": "\u95ea\u7535\u9884\u8b66\u89c4\u5219\u662f\u600e\u6837\u7684\uff1f",
@@ -489,6 +514,108 @@ BACKEND_RULE_DOMAIN_HINTS = (
     "\u63a5\u53e3",
 )
 
+LIVE_POOL_DECISION_HINTS = (
+    "right now",
+    "currently",
+    "current",
+    "now",
+    "go to pool",
+    "head to pool",
+    "go swimming",
+    "leave the pool",
+    "should i go",
+    "should we go",
+    "should i leave",
+    "is it safe",
+    "safe to swim",
+    "open now",
+    "\u73b0\u5728",
+    "\u5f53\u524d",
+    "\u6b64\u523b",
+    "\u9002\u5408",
+    "\u5b89\u5168",
+    "\u8981\u4e0d\u8981",
+    "\u8be5\u4e0d\u8be5",
+    "\u80fd\u4e0d\u80fd",
+    "\u53bb\u6cf3\u6c60",
+    "\u53bb\u6e38\u6cf3",
+    "\u524d\u5f80",
+    "\u79bb\u5f00",
+    "\u8d70\u5417",
+)
+
+LIVE_POOL_DOMAIN_HINTS = (
+    "pool",
+    "swim",
+    "swimming",
+    "lightning",
+    "rain",
+    "weather",
+    "\u6cf3\u6c60",
+    "\u6e38\u6cf3",
+    "\u96f7\u7535",
+    "\u95ea\u7535",
+    "\u4e0b\u96e8",
+    "\u5929\u6c14",
+)
+
+LIVE_CONTEXT_FOLLOWUP_HINTS = (
+    "go there",
+    "go later",
+    "in 30 minutes",
+    "minutes later",
+    "what changes",
+    "what should i watch",
+    "watch",
+    "monitor",
+    "leave",
+    "go",
+    "safe",
+    "risk",
+    "\u8fc7\u53bb",
+    "\u7b49\u4e0b",
+    "\u4e00\u4f1a",
+    "\u5206\u949f\u540e",
+    "\u72b6\u6001\u53d8\u5316",
+    "\u91cd\u70b9\u770b",
+    "\u5173\u6ce8",
+    "\u89c2\u5bdf",
+    "\u98ce\u9669",
+    "\u79bb\u5f00",
+)
+
+CAPABILITY_QUESTION_HINTS = (
+    "what can you do",
+    "what do you do",
+    "how can you help",
+    "what can i ask",
+    "what should i ask",
+    "what are your capabilities",
+    "your capabilities",
+    "assistant help",
+    "help me use this",
+    "what are you for",
+    "how do i use you",
+    "\u4f60\u80fd\u505a\u4ec0\u4e48",
+    "\u4f60\u53ef\u4ee5\u505a\u4ec0\u4e48",
+    "\u4f60\u80fd\u5e72\u4ec0\u4e48",
+    "\u4f60\u4f1a\u4ec0\u4e48",
+    "\u53ef\u4ee5\u95ee\u4f60\u4ec0\u4e48",
+    "\u6211\u80fd\u95ee\u4f60\u4ec0\u4e48",
+    "\u4f60\u80fd\u5e2e\u6211\u4ec0\u4e48",
+    "\u600e\u4e48\u7528\u4f60",
+    "\u4f7f\u7528\u5e2e\u52a9",
+)
+
+CAPABILITY_QUESTION_EXACT_COMPACT = {
+    "help",
+    "\u5e2e\u52a9",
+    "\u4f60\u80fd\u505a\u4ec0\u4e48",
+    "\u4f60\u53ef\u4ee5\u505a\u4ec0\u4e48",
+    "\u4f60\u80fd\u5e72\u4ec0\u4e48",
+    "\u4f60\u4f1a\u4ec0\u4e48",
+}
+
 
 class ChatbotConfigError(RuntimeError):
     pass
@@ -498,6 +625,7 @@ class GraphState(TypedDict, total=False):
     question: str
     original_question: NotRequired[str]
     input_language: NotRequired[str]
+    page_context: NotRequired[list[str]]
     intent: NotRequired[str]
     mode: NotRequired[str]
     context: NotRequired[list[str]]
@@ -1137,6 +1265,17 @@ def _quick_questions_for_unanswerable(question: str) -> list[str]:
     return GENERAL_QUICK_QUESTIONS_EN
 
 
+def _looks_like_capability_question(question: str) -> bool:
+    lowered = (question or "").strip().lower()
+    if not lowered:
+        return False
+
+    compact = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", lowered)
+    if compact in CAPABILITY_QUESTION_EXACT_COMPACT:
+        return True
+    return any(token in lowered for token in CAPABILITY_QUESTION_HINTS)
+
+
 def _is_small_talk_heuristic(question: str) -> bool:
     lowered = (question or "").strip().lower()
     if not lowered:
@@ -1204,6 +1343,49 @@ def _looks_like_kb_question(question: str) -> bool:
     return any(token in lowered for token in KNOWLEDGE_BASE_HINTS)
 
 
+def _looks_like_live_pool_decision_question(question: str) -> bool:
+    lowered = (question or "").strip().lower()
+    if not lowered:
+        return False
+    has_domain_signal = any(token in lowered for token in LIVE_POOL_DOMAIN_HINTS)
+    has_decision_signal = any(token in lowered for token in LIVE_POOL_DECISION_HINTS)
+    return has_domain_signal and has_decision_signal
+
+
+def _looks_like_live_context_followup_question(question: str) -> bool:
+    lowered = (question or "").strip().lower()
+    if not lowered:
+        return False
+    return any(token in lowered for token in LIVE_CONTEXT_FOLLOWUP_HINTS)
+
+
+def _normalize_page_context_chunks(raw_context: Any) -> list[str]:
+    if isinstance(raw_context, str):
+        candidates = [raw_context]
+    elif isinstance(raw_context, list):
+        candidates = raw_context
+    else:
+        return []
+
+    chunks: list[str] = []
+    total_chars = 0
+    for item in candidates:
+        if not isinstance(item, str):
+            continue
+        text = item.strip()
+        if not text or text in chunks:
+            continue
+        if len(text) > 900:
+            text = text[:899] + "\u2026"
+        if total_chars + len(text) > 3000:
+            break
+        chunks.append(text)
+        total_chars += len(text)
+        if len(chunks) >= 10:
+            break
+    return chunks
+
+
 def _is_backend_rules_question(question: str) -> bool:
     lowered = (question or "").strip().lower()
     if not lowered:
@@ -1241,6 +1423,10 @@ def _normalize_intent(value: str | None) -> str:
         "kb": INTENT_KNOWLEDGE_BASE,
         "rag": INTENT_KNOWLEDGE_BASE,
         "website_knowledge": INTENT_KNOWLEDGE_BASE,
+        "capability": INTENT_CAPABILITY,
+        "capabilities": INTENT_CAPABILITY,
+        "assistant_capability": INTENT_CAPABILITY,
+        "help": INTENT_CAPABILITY,
         "fallback": INTENT_FALLBACK,
         "other": INTENT_FALLBACK,
         "unknown": INTENT_FALLBACK,
@@ -1273,8 +1459,12 @@ def _extract_json_object(raw: str) -> dict[str, Any] | None:
 
 
 def _heuristic_intent(question: str) -> str:
+    if _looks_like_capability_question(question):
+        return INTENT_CAPABILITY
     if _is_small_talk_heuristic(question):
         return INTENT_SMALL_TALK
+    if _looks_like_live_pool_decision_question(question):
+        return INTENT_KNOWLEDGE_BASE
     if _is_backend_rules_question(question):
         return INTENT_KNOWLEDGE_BASE
     if _looks_like_policy_question(question):
@@ -1289,6 +1479,17 @@ def _heuristic_intent(question: str) -> str:
 def _merge_model_intent_with_heuristic(question: str, model_intent: str | None) -> str:
     normalized_model_intent = _normalize_intent(model_intent)
     heuristic_intent = _heuristic_intent(question)
+
+    if _looks_like_capability_question(question):
+        return INTENT_CAPABILITY
+
+    # Live status/decision questions are easy for small intent models to mistake
+    # as casual wording; keep them on the context-backed path.
+    if (
+        _looks_like_live_pool_decision_question(question)
+        and normalized_model_intent in {INTENT_SMALL_TALK, INTENT_FALLBACK}
+    ):
+        return INTENT_KNOWLEDGE_BASE
 
     # Policy/rules questions should stay in KB flow even when model drifts to DB.
     if _looks_like_policy_question(question) and normalized_model_intent == INTENT_DATABASE:
@@ -2161,11 +2362,13 @@ def _build_graph(
 ) -> Any:
     def preprocess_node(state: GraphState) -> GraphState:
         original_question = (state.get("question") or "").strip()
+        page_context = _normalize_page_context_chunks(state.get("page_context", []))
         if not original_question:
             return {
                 "question": "",
                 "original_question": "",
                 "input_language": "en",
+                "page_context": page_context,
             }
 
         input_language = _detect_language(original_question)
@@ -2180,11 +2383,21 @@ def _build_graph(
             "question": translated_question,
             "original_question": original_question,
             "input_language": input_language,
+            "page_context": page_context,
         }
 
     def intent_node(state: GraphState) -> GraphState:
         question = (state.get("question") or "").strip()
         original_question = (state.get("original_question") or "").strip()
+        page_context = _normalize_page_context_chunks(state.get("page_context", []))
+        if page_context and (
+            _looks_like_live_pool_decision_question(question)
+            or _looks_like_live_pool_decision_question(original_question)
+            or _looks_like_live_context_followup_question(question)
+            or _looks_like_live_context_followup_question(original_question)
+        ):
+            return {"intent": INTENT_KNOWLEDGE_BASE}
+
         intent = _classify_intent(
             question,
             intent_llm,
@@ -2196,18 +2409,19 @@ def _build_graph(
         question = (state.get("question") or "").strip()
         original_question = (state.get("original_question") or "").strip()
         intent = _normalize_intent(state.get("intent"))
+        page_context = _normalize_page_context_chunks(state.get("page_context", []))
         retrieval_question = question or original_question
         if not retrieval_question:
             return {"mode": INTENT_FALLBACK, "context": [], "sources": []}
 
-        if intent in {INTENT_SMALL_TALK, INTENT_DATABASE, INTENT_FALLBACK}:
+        if intent in {INTENT_SMALL_TALK, INTENT_DATABASE, INTENT_CAPABILITY, INTENT_FALLBACK}:
             return {"mode": intent, "context": [], "sources": []}
 
         is_backend_rules = _is_backend_rules_question(question) or _is_backend_rules_question(
             original_question
         )
-        context: list[str] = []
-        sources: list[str] = []
+        context: list[str] = list(page_context)
+        sources: list[str] = ["app://homepage/live-status"] if page_context else []
         backend_priority_docs: list[Document] = []
 
         if is_backend_rules:
@@ -2270,6 +2484,13 @@ def _build_graph(
         original_question = (state.get("original_question") or "").strip()
         context_list = state.get("context", []) or []
         unknown_reply = DEFAULT_UNKNOWN_REPLY_EN
+
+        if mode == INTENT_CAPABILITY:
+            return {
+                "answer": CAPABILITY_ANSWER_EN,
+                "sources": [],
+                "quick_questions": STARTER_QUICK_QUESTIONS_EN,
+            }
 
         if mode == INTENT_SMALL_TALK:
             response = _invoke_llm_with_failure_logging(
