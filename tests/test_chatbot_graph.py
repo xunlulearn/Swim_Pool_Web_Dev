@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from langchain_core.documents import Document
 
 from app.services.chatbot import graph as graph_module
@@ -78,8 +80,72 @@ def test_classify_intent_overrides_model_fallback_when_kb_signal_is_strong():
     assert intent == graph_module.INTENT_KNOWLEDGE_BASE
 
 
+def test_classify_intent_overrides_model_capability_when_kb_signal_is_strong():
+    intent = graph_module._classify_intent(
+        "How does lightning affect pool status?",
+        _IntentLLM('{"intent":"capability","reason":"asks about assistant help"}'),
+    )
+    assert intent == graph_module.INTENT_KNOWLEDGE_BASE
+
+
+def test_classify_intent_uses_original_question_when_translation_looks_capability():
+    intent = graph_module._classify_intent(
+        "What can you do?",
+        _IntentLLM('{"intent":"capability","reason":"asks about assistant help"}'),
+        fallback_question="\u95ea\u7535\u4f1a\u5982\u4f55\u5f71\u54cd\u6cf3\u6c60\u72b6\u6001\uff1f",
+    )
+    assert intent == graph_module.INTENT_KNOWLEDGE_BASE
+
+
+@pytest.mark.parametrize(
+    ("question", "expected_intent"),
+    [
+        ("How does lightning affect pool status?", graph_module.INTENT_KNOWLEDGE_BASE),
+        ("What are the pool opening hours on weekends?", graph_module.INTENT_KNOWLEDGE_BASE),
+        ("Do I need to log in to submit a report?", graph_module.INTENT_KNOWLEDGE_BASE),
+        ("How many reports are needed to override weather status?", graph_module.INTENT_KNOWLEDGE_BASE),
+        ("List latest manual reports from today", graph_module.INTENT_DATABASE),
+        ("\u73b0\u5728\u9002\u5408\u53bb\u6e38\u6cf3\u5417\uff1f", graph_module.INTENT_KNOWLEDGE_BASE),
+        ("\u9700\u8981\u591a\u5c11\u6761\u4e0a\u62a5\u624d\u80fd\u8986\u76d6\u5929\u6c14\u72b6\u6001\uff1f", graph_module.INTENT_KNOWLEDGE_BASE),
+        ("\u5217\u51fa\u4eca\u5929\u6700\u65b0\u7684\u624b\u52a8\u4e0a\u62a5", graph_module.INTENT_DATABASE),
+    ],
+)
+@pytest.mark.parametrize("bad_model_intent", ["capability", "small_talk", "fallback"])
+def test_domain_questions_override_non_domain_model_drift(
+    question, expected_intent, bad_model_intent
+):
+    intent = graph_module._merge_model_intent_with_heuristic(question, bad_model_intent)
+    assert intent == expected_intent
+
+
+@pytest.mark.parametrize(
+    ("original_question", "expected_intent"),
+    [
+        ("\u95ea\u7535\u4f1a\u5982\u4f55\u5f71\u54cd\u6cf3\u6c60\u72b6\u6001\uff1f", graph_module.INTENT_KNOWLEDGE_BASE),
+        ("\u9700\u8981\u591a\u5c11\u6761\u4e0a\u62a5\u624d\u80fd\u8986\u76d6\u5929\u6c14\u72b6\u6001\uff1f", graph_module.INTENT_KNOWLEDGE_BASE),
+        ("\u5217\u51fa\u4eca\u5929\u6700\u65b0\u7684\u624b\u52a8\u4e0a\u62a5", graph_module.INTENT_DATABASE),
+    ],
+)
+def test_original_question_domain_signal_overrides_bad_capability_translation(
+    original_question, expected_intent
+):
+    intent = graph_module._classify_intent(
+        "What can you do?",
+        _IntentLLM('{"intent":"capability","reason":"bad translation drift"}'),
+        fallback_question=original_question,
+    )
+    assert intent == expected_intent
+
+
 def test_heuristic_intent_routes_policy_question_to_knowledge_base():
     intent = graph_module._heuristic_intent("Can I submit a pool report without login?")
+    assert intent == graph_module.INTENT_KNOWLEDGE_BASE
+
+
+def test_heuristic_intent_routes_chinese_report_submission_to_knowledge_base():
+    intent = graph_module._heuristic_intent(
+        "\u6211\u8be5\u5982\u4f55\u63d0\u4ea4\u624b\u52a8\u6cf3\u6c60\u4e0a\u62a5\uff1f"
+    )
     assert intent == graph_module.INTENT_KNOWLEDGE_BASE
 
 

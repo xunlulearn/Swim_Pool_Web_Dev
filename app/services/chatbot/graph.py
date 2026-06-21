@@ -584,6 +584,48 @@ LIVE_CONTEXT_FOLLOWUP_HINTS = (
     "\u79bb\u5f00",
 )
 
+REPORT_SUBMISSION_HINTS = (
+    "submit",
+    "submission",
+    "send report",
+    "file report",
+    "make report",
+    "report manually",
+    "\u63d0\u4ea4",
+    "\u5982\u4f55",
+    "\u600e\u4e48",
+    "\u600e\u6837",
+    "\u6211\u8be5",
+)
+
+REPORT_DOMAIN_HINTS = (
+    "report",
+    "manual report",
+    "pool report",
+    "\u4e0a\u62a5",
+    "\u624b\u52a8\u4e0a\u62a5",
+    "\u6cf3\u6c60\u4e0a\u62a5",
+)
+
+REPORT_RULE_HINTS = (
+    "override weather",
+    "override status",
+    "weather status",
+    "reports are needed",
+    "reports needed",
+    "needed to override",
+    "consensus",
+    "unanimous",
+    "distinct users",
+    "\u8986\u76d6",
+    "\u5929\u6c14\u72b6\u6001",
+    "\u9700\u8981\u591a\u5c11",
+    "\u591a\u5c11\u6761",
+    "\u51e0\u6761",
+    "\u5171\u8bc6",
+    "\u4e00\u81f4",
+)
+
 CAPABILITY_QUESTION_HINTS = (
     "what can you do",
     "what do you do",
@@ -1299,6 +1341,26 @@ def _has_database_lookup_intent(lowered_question: str) -> bool:
     return False
 
 
+def _looks_like_report_submission_question(question: str) -> bool:
+    lowered = (question or "").strip().lower()
+    if not lowered:
+        return False
+    if _has_database_lookup_intent(lowered):
+        return False
+    has_report_domain = any(token in lowered for token in REPORT_DOMAIN_HINTS)
+    has_submission_signal = any(token in lowered for token in REPORT_SUBMISSION_HINTS)
+    return has_report_domain and has_submission_signal
+
+
+def _looks_like_report_rule_question(question: str) -> bool:
+    lowered = (question or "").strip().lower()
+    if not lowered:
+        return False
+    has_report_domain = any(token in lowered for token in REPORT_DOMAIN_HINTS)
+    has_rule_signal = any(token in lowered for token in REPORT_RULE_HINTS)
+    return has_report_domain and has_rule_signal
+
+
 def _looks_like_policy_question(question: str) -> bool:
     lowered = (question or "").strip().lower()
     if not lowered:
@@ -1467,6 +1529,10 @@ def _heuristic_intent(question: str) -> str:
         return INTENT_KNOWLEDGE_BASE
     if _is_backend_rules_question(question):
         return INTENT_KNOWLEDGE_BASE
+    if _looks_like_report_submission_question(question):
+        return INTENT_KNOWLEDGE_BASE
+    if _looks_like_report_rule_question(question):
+        return INTENT_KNOWLEDGE_BASE
     if _looks_like_policy_question(question):
         return INTENT_KNOWLEDGE_BASE
     if _looks_like_database_question(question):
@@ -1476,12 +1542,45 @@ def _heuristic_intent(question: str) -> str:
     return INTENT_FALLBACK
 
 
-def _merge_model_intent_with_heuristic(question: str, model_intent: str | None) -> str:
+def _merge_model_intent_with_heuristic(
+    question: str,
+    model_intent: str | None,
+    fallback_question: str = "",
+) -> str:
     normalized_model_intent = _normalize_intent(model_intent)
     heuristic_intent = _heuristic_intent(question)
+    fallback_heuristic_intent = (
+        _heuristic_intent(fallback_question)
+        if (fallback_question or "").strip()
+        else INTENT_FALLBACK
+    )
+    domain_heuristic_intent = (
+        heuristic_intent
+        if heuristic_intent in {INTENT_DATABASE, INTENT_KNOWLEDGE_BASE}
+        else fallback_heuristic_intent
+        if fallback_heuristic_intent in {INTENT_DATABASE, INTENT_KNOWLEDGE_BASE}
+        else INTENT_FALLBACK
+    )
 
-    if _looks_like_capability_question(question):
+    if (
+        normalized_model_intent in {INTENT_CAPABILITY, INTENT_SMALL_TALK, INTENT_FALLBACK}
+        and domain_heuristic_intent != INTENT_FALLBACK
+    ):
+        return domain_heuristic_intent
+
+    if _looks_like_capability_question(question) or _looks_like_capability_question(
+        fallback_question
+    ):
         return INTENT_CAPABILITY
+
+    if normalized_model_intent == INTENT_CAPABILITY and heuristic_intent != INTENT_FALLBACK:
+        return heuristic_intent
+
+    if (
+        normalized_model_intent == INTENT_SMALL_TALK
+        and heuristic_intent in {INTENT_CAPABILITY, INTENT_DATABASE, INTENT_KNOWLEDGE_BASE}
+    ):
+        return heuristic_intent
 
     # Live status/decision questions are easy for small intent models to mistake
     # as casual wording; keep them on the context-backed path.
@@ -1531,6 +1630,7 @@ def _classify_intent(
                 resolved = _merge_model_intent_with_heuristic(
                     text,
                     str(payload.get("intent", "")),
+                    fallback_question=fallback_text,
                 )
                 if resolved != INTENT_FALLBACK:
                     return resolved
