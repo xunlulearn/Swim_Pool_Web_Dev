@@ -413,6 +413,80 @@ def test_first_community_post_tick_seeds_accounts_and_posts(app, monkeypatch):
         ).count() == 1
 
 
+def _add_bot_post(account, title, *, created_at, body='dup body'):
+    post = Post(
+        title=title,
+        body=body,
+        category='general',
+        author_id=account.user_id,
+        created_at=created_at,
+        updated_at=created_at,
+    )
+    db.session.add(post)
+    db.session.flush()
+    return post
+
+
+def test_legacy_duplicate_bot_posts_cleaned_up_once(app):
+    from app.models.bot import BotAccount, BotActivityLog
+    from app.models.content import Comment
+    from app.services.community_bot import ensure_bot_accounts, run_community_post_tick
+
+    base = IN_WINDOW_NOW - timedelta(days=3)
+
+    with app.app_context():
+        ensure_bot_accounts()
+        bots = BotAccount.query.order_by(BotAccount.id).limit(3).all()
+
+        # Three bot posts sharing one title; the middle one has a human comment.
+        dup_old = _add_bot_post(bots[0], '今晚简单游几组？', created_at=base)
+        dup_human = _add_bot_post(bots[1], '今晚简单游几组？', created_at=base + timedelta(hours=1))
+        dup_new = _add_bot_post(bots[2], '今晚简单游几组？', created_at=base + timedelta(hours=2))
+        unique_post = _add_bot_post(bots[0], '独一无二的帖子', created_at=base)
+
+        human = User(
+            email='dedupe-human@example.com', username='dedupe_human', is_verified=True,
+        )
+        db.session.add(human)
+        db.session.flush()
+        # Human post with the same title must never be touched.
+        human_post = Post(
+            title='今晚简单游几组？', body='真人发的', category='general',
+            author_id=human.id, created_at=base, updated_at=base,
+        )
+        db.session.add(human_post)
+        db.session.add(Comment(
+            body='我也想去！', author_id=human.id, post_id=dup_human.id,
+            created_at=base + timedelta(hours=3),
+        ))
+        db.session.commit()
+
+        # Cleanup runs even on a night tick (before the operating-hours gate).
+        result = run_community_post_tick(now=NIGHT_NOW)
+
+        assert result['reason'] == 'outside_operating_hours'
+        assert result['cleanup']['deleted'] == 2
+
+        db.session.expire_all()
+        # The human-commented duplicate is kept; the other two bot dupes are hidden.
+        assert dup_human.is_deleted is False
+        assert dup_old.is_deleted is True
+        assert dup_new.is_deleted is True
+        # Unique bot post and the human's post are untouched.
+        assert unique_post.is_deleted is False
+        assert human_post.is_deleted is False
+        assert BotActivityLog.query.filter_by(action_type='dedupe_cleanup').count() == 1
+
+        # Second tick must not run the cleanup again (marker present).
+        dup_new.is_deleted = False
+        db.session.commit()
+        second = run_community_post_tick(now=NIGHT_NOW + timedelta(minutes=30))
+        assert 'cleanup' not in second
+        db.session.expire_all()
+        assert dup_new.is_deleted is False
+        assert BotActivityLog.query.filter_by(action_type='dedupe_cleanup').count() == 1
+
+
 def test_community_post_cron_requires_secret(client):
     response = client.get('/api/cron/community-posts')
 
