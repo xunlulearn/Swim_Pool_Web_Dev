@@ -29,7 +29,7 @@ if errorlevel 1 (
 )
 
 set "MSG=%~1"
-if "%MSG%"=="" set "MSG=fix(chatbot): revive retrieval recovery, qa-aware chunking, usage-vs-data routing"
+if "%MSG%"=="" set "MSG=feat(chatbot): hard knowledge base with instant answers and guided suggestions"
 
 echo [2/3] Committing and pushing...
 call dev.bat git-push "%MSG%"
