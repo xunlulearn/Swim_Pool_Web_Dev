@@ -39,8 +39,27 @@ DEFAULT_WEBSITE_FALLBACK_URLS = [
     "https://ntupool.org/api/live-status/",
 ]
 DEFAULT_KNOWLEDGE_BASE_DIR = "knowledge_base"
-DEFAULT_CHUNK_SIZE = 500
-DEFAULT_CHUNK_OVERLAP = 50
+# Q&A entries in the knowledge base run 300-600 chars including the Chinese
+# half. A 500-char window used to cut between "### Q:" and "**A:**", leaving
+# question-only chunks that retrieve perfectly and answer nothing.
+DEFAULT_CHUNK_SIZE = 1200
+DEFAULT_CHUNK_OVERLAP = 150
+# Split on Q&A/section boundaries before falling back to blank lines, so a
+# question always travels together with its answer.
+CHUNK_SEPARATORS = [
+    "\n---\n",
+    "\n## ",
+    "\n### ",
+    "\n#### ",
+    "\n\n",
+    "\n",
+    " ",
+    "",
+]
+# Bump when chunking behaviour changes: it participates in doc_hash so an
+# incremental sync re-indexes existing documents instead of considering them
+# unchanged (the content hash alone would not notice a splitter change).
+CHUNK_STRATEGY_VERSION = "qa-aware-v2"
 DEFAULT_TOP_K = 3
 DEFAULT_EMBED_MODEL = "text-embedding-3-small"
 DEFAULT_TABLE_NAME = "pool_documents"
@@ -661,6 +680,9 @@ def attach_sync_metadata(docs: list[Document], synced_at: str) -> None:
         metadata = sanitize_metadata(dict(doc.metadata or {}))
         metadata["ingest_namespace"] = INGEST_NAMESPACE
         metadata["synced_at"] = synced_at
+        # Part of the hashed metadata: a chunking-strategy change must
+        # invalidate previously indexed chunks even when content is identical.
+        metadata["chunk_strategy"] = CHUNK_STRATEGY_VERSION
         metadata["doc_key"] = build_doc_key(metadata=metadata, content=content)
         metadata["doc_hash"] = compute_doc_hash(content=content, metadata=metadata)
         doc.metadata = metadata
@@ -671,6 +693,7 @@ def split_documents(docs: list[Document], chunk_size: int, chunk_overlap: int) -
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
+        separators=CHUNK_SEPARATORS,
     )
     chunks = splitter.split_documents(docs)
 

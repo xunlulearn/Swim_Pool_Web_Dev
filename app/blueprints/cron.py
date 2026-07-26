@@ -42,3 +42,35 @@ def community_posts():
 
     result = run_community_post_tick()
     return jsonify(result)
+
+
+@cron_bp.get("/chatbot-selftest")
+def chatbot_selftest():
+    """Run ONE question of the chatbot self-test battery.
+
+    Called in a loop by the chatbot-selftest GitHub Actions workflow with
+    ?run=<key>&index=<n>, keeping each serverless request short. Results
+    accumulate in chatbot_selftest_runs and are readable at the public
+    /api/chatbot-selftest/latest endpoint.
+    """
+    if not _is_valid_cron_secret():
+        return jsonify({"error": "Not found."}), 404
+
+    from app.services.chatbot.selftest import run_selftest_question, selftest_total
+
+    run_key = (request.args.get("run") or "").strip()[:80]
+    if not run_key:
+        return jsonify({"ok": False, "error": "`run` query param is required."}), 400
+
+    try:
+        index = int(request.args.get("index", ""))
+    except (TypeError, ValueError):
+        return jsonify({
+            "ok": False,
+            "error": "`index` query param is required.",
+            "total": selftest_total(),
+        }), 400
+
+    result = run_selftest_question(run_key, index)
+    status_code = 200 if result.get("ok") or "index" in result else 400
+    return jsonify(result), status_code

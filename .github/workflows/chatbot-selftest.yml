@@ -1,0 +1,55 @@
+name: Chatbot Selftest
+
+# Manually triggered regression battery for the chatbot. Runs each curated
+# question through the production pipeline one request at a time (keeps every
+# serverless call short), then the results are readable at the public
+# endpoint /api/chatbot-selftest/latest.
+#
+# Reuses existing secrets: COMMUNITY_BOT_CRON_URL (base URL is derived from
+# it) and CRON_SECRET. No new configuration needed.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Run chatbot selftest battery
+        env:
+          COMMUNITY_BOT_CRON_URL: ${{ secrets.COMMUNITY_BOT_CRON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          test -n "$COMMUNITY_BOT_CRON_URL"
+          test -n "$CRON_SECRET"
+          BASE_URL="${COMMUNITY_BOT_CRON_URL%/api/cron/community-posts}"
+          RUN_KEY="gh-${GITHUB_RUN_ID}"
+          echo "Base URL: $BASE_URL"
+          echo "Run key : $RUN_KEY"
+
+          # Battery size comes from the app so the workflow never drifts
+          # out of sync when questions are added.
+          TOTAL=$(curl --silent --max-time 20 "$BASE_URL/api/chatbot-selftest/latest" \
+            | grep -o '"total_questions": *[0-9]*' | grep -o '[0-9]*' | head -1)
+          if [ -z "$TOTAL" ]; then TOTAL=21; fi
+          echo "Battery size: $TOTAL"
+          FAILED=0
+          for i in $(seq 0 $((TOTAL - 1))); do
+            echo "--- question $i ---"
+            RESPONSE=$(curl --silent --show-error --max-time 30 \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              "$BASE_URL/api/cron/chatbot-selftest?run=$RUN_KEY&index=$i" || echo '{"ok":false,"error":"curl failed"}')
+            echo "$RESPONSE"
+            echo "$RESPONSE" | grep -q '"ok": *true' || FAILED=$((FAILED + 1))
+            sleep 2
+          done
+
+          echo "=================================================="
+          echo "Battery finished. Failed questions: $FAILED / $TOTAL"
+          echo "Full report: $BASE_URL/api/chatbot-selftest/latest"
+          # Individual question failures are analyzed from the report
+          # endpoint; the workflow itself only fails on total breakage.
+          if [ "$FAILED" = "$TOTAL" ]; then
+            exit 1
+          fi

@@ -98,6 +98,41 @@
 
 ---
 
+### Q: How do I change my nickname or upload an avatar?
+
+**A:** Open **Profile → Edit profile**. You can set a display nickname and upload an avatar image (JPEG or PNG, up to 2 MB). The nickname is what other users see next to your posts, comments, and pool reports; your username stays fixed.
+中文：进入 **Profile → 编辑资料**，可以修改昵称并上传头像（JPEG/PNG，不超过 2MB）。昵称是别人在你的帖子、评论和上报旁看到的名字，用户名本身不变。
+
+---
+
+### Q: How do I delete my own post or comment?
+
+**A:** Open your post (or find your comment) and use the Delete option. Only the author and site admins can delete a given item. Deletion is a soft delete: the entry disappears from the feed, and a deleted comment that still has replies is kept as a placeholder so the thread stays readable.
+中文：打开自己的帖子或找到自己的评论，点击删除。只有作者本人和管理员可以删除。删除为软删除：内容从列表中消失；如果被删的评论下面还有回复，会保留一个占位以免楼层断裂。
+
+---
+
+### Q: Where can I see the posts I saved?
+
+**A:** Saved (collected) posts appear on your **Profile** page, alongside the list of posts you have written. Use the save/collect action on any post to add it there.
+中文：收藏过的帖子会显示在你的 **Profile 个人主页**，和你自己发过的帖子列在一起。在任意帖子上点收藏即可加入。
+
+---
+
+### Q: How do I filter posts by category?
+
+**A:** The Community page has category tabs: All, General, Find Buddy (squad), Lost & Found, and Tutorials. Selecting a tab filters the feed, and the filter combines with the search box and with pagination.
+中文：社区页有分类标签：全部、General、Find Buddy（约伴）、Lost & Found（失物招领）、Tutorials（教程）。点击标签即可筛选，并且可以和搜索框、翻页一起使用。
+
+---
+
+### Q: What can guests do without logging in?
+
+**A:** Guests can view the live pool status, the lightning trend and radar, the community feed, and individual posts. Logging in with a verified account is required to submit pool reports, create posts, comment, like, save, send private messages, and use the assistant.
+中文：未登录的游客可以查看泳池实时状态、闪电趋势与雷达、社区帖子列表和帖子详情。上报泳池状态、发帖、评论、点赞、收藏、私信和使用智能助手，需要登录并完成邮箱验证。
+
+---
+
 ### Q: Can I send private messages to other users?
 
 **A:** Yes. Verified users can open a user's profile or use the Messages page to chat one-on-one. Unread counts appear in the navigation bar.
