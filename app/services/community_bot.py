@@ -54,6 +54,7 @@ ACTION_CREATE_POST = 'create_post'
 ACTION_POOL_REPORT = 'pool_report'
 ACTION_CREATE_COMMENT = 'create_comment'
 ACTION_LIKE_POST = 'like_post'
+ACTION_DEDUPE_CLEANUP = 'dedupe_cleanup'
 
 # Do not repeat a post title that any bot used within this window.
 TEMPLATE_REUSE_LOOKBACK_DAYS = 10
@@ -844,6 +845,79 @@ def _bot_user_ids():
     return {row.id for row in rows}
 
 
+def _cleanup_legacy_duplicate_posts(now):
+    """One-time cleanup of duplicate-titled legacy bot posts.
+
+    The pre-2026-07 template pool was small enough that the feed accumulated
+    many identical titles. This soft-deletes the extras, keeping per title the
+    post with human comments first, then the most-commented, then the newest.
+    A post that received human comments is never hidden. A marker row in
+    BotActivityLog guarantees the cleanup runs exactly once per database.
+    """
+    marker = BotActivityLog.query.filter_by(action_type=ACTION_DEDUPE_CLEANUP).first()
+    if marker is not None:
+        return None
+
+    bot_ids = _bot_user_ids()
+    posts = (
+        Post.query.filter(
+            Post.is_deleted.is_(False),
+            Post.author_id.in_(bot_ids),
+        ).all()
+        if bot_ids
+        else []
+    )
+
+    post_ids = [post.id for post in posts]
+    comment_rows = (
+        db.session.query(Comment.post_id, Comment.author_id)
+        .filter(Comment.post_id.in_(post_ids), Comment.is_deleted.is_(False))
+        .all()
+        if post_ids
+        else []
+    )
+    comment_totals = {}
+    has_human_comment = {}
+    for post_id, author_id in comment_rows:
+        comment_totals[post_id] = comment_totals.get(post_id, 0) + 1
+        if author_id not in bot_ids:
+            has_human_comment[post_id] = True
+
+    groups = {}
+    for post in posts:
+        title = (post.title or '').strip()
+        if title:
+            groups.setdefault(title, []).append(post)
+
+    deleted = 0
+    for title, group in groups.items():
+        if len(group) < 2:
+            continue
+        group.sort(
+            key=lambda post: (
+                bool(has_human_comment.get(post.id)),
+                comment_totals.get(post.id, 0),
+                post.created_at or datetime.min,
+            ),
+            reverse=True,
+        )
+        for post in group[1:]:
+            if has_human_comment.get(post.id):
+                # Never hide a thread a real user participated in.
+                continue
+            post.is_deleted = True
+            deleted += 1
+
+    db.session.add(BotActivityLog(
+        action_type=ACTION_DEDUPE_CLEANUP,
+        status='posted',
+        reason=f'legacy_duplicate_posts_removed:{deleted}',
+        created_at=now,
+    ))
+    db.session.commit()
+    return {'deleted': deleted}
+
+
 def _comment_counts(post_ids, bot_ids):
     """Return ({post_id: total_comments}, {post_id: bot_comments})."""
     if not post_ids:
@@ -1047,15 +1121,22 @@ def run_community_post_tick(now=None):
     now = now or datetime.utcnow()
     ensure_bot_accounts(now=now)
 
+    # Data hygiene runs before the operating-hours gate: it is invisible to
+    # users and should complete as soon as possible after deploy.
+    cleanup_result = _cleanup_legacy_duplicate_posts(now)
+
     window = operating_hours.operating_window_utc_naive(
         now, edge_buffer=ACTION_WINDOW_EDGE_BUFFER
     )
     if window is None or not (window[0] <= now < window[1]):
-        return {
+        result = {
             'ok': True,
             'action': 'skipped',
             'reason': 'outside_operating_hours',
         }
+        if cleanup_result is not None:
+            result['cleanup'] = cleanup_result
+        return result
     _, window_end = window
 
     plan = get_or_create_daily_plan(now=now)
@@ -1071,5 +1152,7 @@ def run_community_post_tick(now=None):
         'comment': comment_result,
         'like': like_result,
     }
+    if cleanup_result is not None:
+        result['cleanup'] = cleanup_result
     result.update(post_result)
     return result
