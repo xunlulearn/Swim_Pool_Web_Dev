@@ -14,20 +14,23 @@ echo [1/2] Running test suite...
 call dev.bat test -q
 if errorlevel 1 (
     echo [ERROR] Tests failed - nothing was pushed.
+    pause
     exit /b 1
 )
 
 set "MSG=%~1"
-if "%MSG%"=="" set "MSG=fix(community): one-time cleanup of duplicate legacy bot posts"
+if "%MSG%"=="" set "MSG=feat(community): llm-generated bot content and humanized first-page commenting"
 
 echo [2/2] Committing and pushing...
 call dev.bat git-push "%MSG%"
 if errorlevel 1 (
     echo [ERROR] Push failed. Fix git state and re-run.
+    pause
     exit /b 1
 )
 
 echo.
 echo DONE. Now open the pull request page and merge to deploy:
 echo   https://github.com/xunlulearn/Swim_Pool_Web_Dev/compare/main...codex/community-page-jump
+pause
 exit /b 0

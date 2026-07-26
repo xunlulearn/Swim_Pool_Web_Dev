@@ -98,7 +98,7 @@ def test_chinese_bot_accounts_use_chinese_post_templates(app):
         ensure_bot_accounts()
 
         for account in BotAccount.query.filter(BotAccount.persona_key.in_(CHINESE_PERSONA_KEYS)).all():
-            title, body = _build_post(account, now=IN_WINDOW_NOW)
+            title, body, _source = _build_post(account, now=IN_WINDOW_NOW)
 
             assert _contains_cjk(title)
             assert _contains_cjk(body)
@@ -273,7 +273,7 @@ def test_build_post_matches_time_bucket(app):
         evening_titles = {title for title, _ in zh_general[community_bot.BUCKET_EVENING]}
 
         for _ in range(20):
-            title, _body = _build_post(account, now=morning_now)
+            title, _body, _source = _build_post(account, now=morning_now)
             assert title in morning_titles
             assert title not in evening_titles
 
@@ -290,7 +290,7 @@ def test_build_post_avoids_recently_used_titles(app):
         # Simulate several days of posting; each chosen title is persisted
         # as a bot post, so the next pick must avoid it while options last.
         for _ in range(3):
-            title, body = _build_post(account, now=IN_WINDOW_NOW)
+            title, body, _source = _build_post(account, now=IN_WINDOW_NOW)
             assert title not in seen
             seen.add(title)
             db.session.add(Post(
