@@ -25,11 +25,13 @@ from supabase import create_client
 INTENT_SMALL_TALK = "small_talk"
 INTENT_DATABASE = "database"
 INTENT_KNOWLEDGE_BASE = "knowledge_base"
+INTENT_CAPABILITY = "capability"
 INTENT_FALLBACK = "fallback"
 VALID_INTENTS = {
     INTENT_SMALL_TALK,
     INTENT_DATABASE,
     INTENT_KNOWLEDGE_BASE,
+    INTENT_CAPABILITY,
     INTENT_FALLBACK,
 }
 
@@ -37,12 +39,19 @@ RAG_SYSTEM_PROMPT = (
     "You are the official customer assistant for NTU Pool (ntupool.org). "
     "Answer strictly from the provided reference context only. "
     "If the context is insufficient, clearly say you do not know and suggest checking ntupool.org. "
-    "Always reply in English."
+    "Do not mention reference context numbers or internal context labels. "
+    "For live pool decision questions, answer directly with go, wait, leave water, or keep monitoring, "
+    "then cite the relevant status, lightning, trend, and rainfall facts. "
+    "Do not answer with only one word; include a brief reason and the next action. "
+    "If a live metric is unknown, say which metric is unavailable and still use any known pool status, "
+    "trend, rainfall, and operating-hours facts to guide the user. "
+    "The reference context may be in a different language than the user; "
+    "answer with the facts regardless of the context language."
 )
 
 SMALL_TALK_SYSTEM_PROMPT = (
     "You are the official customer assistant for NTU Pool (ntupool.org). "
-    "This is casual conversation. Reply naturally and briefly in English."
+    "This is casual conversation. Reply naturally and briefly."
 )
 
 INTENT_SYSTEM_PROMPT = (
@@ -52,8 +61,9 @@ INTENT_SYSTEM_PROMPT = (
     '- "small_talk": greeting/chitchat/emotion with no factual query.\n'
     '- "database": asks about dynamic app database records: community posts/comments/likes/collections/manual pool reports.\n'
     '- "knowledge_base": asks about ntupool.org website knowledge, policies, operations, weather/source rules, or app feature rules documented in KB.\n'
+    '- "capability": asks what this assistant can do, what to ask, or how it can help on ntupool.org.\n'
     '- "fallback": anything outside scope or unclear.\n\n'
-    'Return exactly this schema: {"intent":"small_talk|database|knowledge_base|fallback","reason":"short reason"}.\n'
+    'Return exactly this schema: {"intent":"small_talk|database|knowledge_base|capability|fallback","reason":"short reason"}.\n'
     "Do not answer the user question."
 )
 
@@ -67,7 +77,7 @@ DATABASE_SUMMARY_PROMPT = (
     "You are the NTU Pool assistant. "
     "You will receive a user question and JSON tool results fetched from the database. "
     "Answer strictly from the tool results. If no useful data exists, say so clearly. "
-    "Keep the answer concise and in English."
+    "Keep the answer concise."
 )
 
 TRANSLATE_TO_ENGLISH_SYSTEM_PROMPT = (
@@ -140,6 +150,36 @@ GREETING_QUICK_QUESTIONS_EN = [
     "What are the pool opening hours on weekdays and weekends?",
 ]
 
+STARTER_QUICK_QUESTIONS_EN = [
+    "Can I go swimming now?",
+    "How does lightning affect pool status?",
+    "How can I submit a manual pool report?",
+]
+
+CAPABILITY_ANSWER_EN = (
+    "I am the NTU Pool Assistant for ntupool.org. I can help with live pool status, "
+    "whether it is sensible to go swimming now, lightning and rainfall risk, opening hours, "
+    "manual pool reports, community posts, account usage, and swimming-related website rules. "
+    "For current safety decisions, I use the homepage status, lightning trend, rainfall, and "
+    "operating-hours context when it is available. Always follow on-site lifeguard instructions."
+)
+
+CAPABILITY_ANSWER_ZH = (
+    "我是 NTU Pool (ntupool.org) 的官方助手。我可以帮你了解泳池实时状态、现在适不适合去游泳、"
+    "闪电和降雨风险、开放时间、手动上报、社区帖子、账号使用以及网站相关规则。"
+    "涉及当前安全判断时，我会结合首页状态、闪电趋势、降雨量和开放时段信息。"
+    "请始终以现场救生员的指示为准。"
+)
+
+
+def _capability_answer_for_language(language: str) -> str:
+    return CAPABILITY_ANSWER_ZH if language == "zh" else CAPABILITY_ANSWER_EN
+
+
+def _reply_language_instruction(language: str) -> str:
+    label = LANGUAGE_LABELS.get(language, "the user's language")
+    return f" Reply in {label}."
+
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 FAQ_MARKDOWN_PATH = PROJECT_ROOT / "knowledge_base" / "faq.md"
 FAQ_QUESTION_LINE_RE = re.compile(r"^\s*###\s*Q:\s*(.+?)\s*$")
@@ -178,6 +218,8 @@ WEATHER_QUICK_QUESTIONS_EN = [
 
 QUICK_QUESTION_ZH_MAP = {
     "Is the pool open right now?": "\u73b0\u5728\u6cf3\u6c60\u5f00\u653e\u5417\uff1f",
+    "Can I go swimming now?": "\u73b0\u5728\u9002\u5408\u53bb\u6e38\u6cf3\u5417\uff1f",
+    "How does lightning affect pool status?": "\u95ea\u7535\u4f1a\u5982\u4f55\u5f71\u54cd\u6cf3\u6c60\u72b6\u6001\uff1f",
     "How can I submit a manual pool report?": "\u6211\u8be5\u5982\u4f55\u63d0\u4ea4\u624b\u52a8\u6cf3\u6c60\u4e0a\u62a5\uff1f",
     "What are the pool opening hours on weekdays and weekends?": "\u5de5\u4f5c\u65e5\u548c\u5468\u672b\u7684\u6cf3\u6c60\u5f00\u653e\u65f6\u95f4\u662f\u4ec0\u4e48\uff1f",
     "How does the lightning warning rule work?": "\u95ea\u7535\u9884\u8b66\u89c4\u5219\u662f\u600e\u6837\u7684\uff1f",
@@ -489,6 +531,150 @@ BACKEND_RULE_DOMAIN_HINTS = (
     "\u63a5\u53e3",
 )
 
+LIVE_POOL_DECISION_HINTS = (
+    "right now",
+    "currently",
+    "current",
+    "now",
+    "go to pool",
+    "head to pool",
+    "go swimming",
+    "leave the pool",
+    "should i go",
+    "should we go",
+    "should i leave",
+    "is it safe",
+    "safe to swim",
+    "open now",
+    "\u73b0\u5728",
+    "\u5f53\u524d",
+    "\u6b64\u523b",
+    "\u9002\u5408",
+    "\u5b89\u5168",
+    "\u8981\u4e0d\u8981",
+    "\u8be5\u4e0d\u8be5",
+    "\u80fd\u4e0d\u80fd",
+    "\u53bb\u6cf3\u6c60",
+    "\u53bb\u6e38\u6cf3",
+    "\u524d\u5f80",
+    "\u79bb\u5f00",
+    "\u8d70\u5417",
+)
+
+LIVE_POOL_DOMAIN_HINTS = (
+    "pool",
+    "swim",
+    "swimming",
+    "lightning",
+    "rain",
+    "weather",
+    "\u6cf3\u6c60",
+    "\u6e38\u6cf3",
+    "\u96f7\u7535",
+    "\u95ea\u7535",
+    "\u4e0b\u96e8",
+    "\u5929\u6c14",
+)
+
+LIVE_CONTEXT_FOLLOWUP_HINTS = (
+    "go there",
+    "go later",
+    "in 30 minutes",
+    "minutes later",
+    "what changes",
+    "what should i watch",
+    "watch",
+    "monitor",
+    "leave",
+    "go",
+    "safe",
+    "risk",
+    "\u8fc7\u53bb",
+    "\u7b49\u4e0b",
+    "\u4e00\u4f1a",
+    "\u5206\u949f\u540e",
+    "\u72b6\u6001\u53d8\u5316",
+    "\u91cd\u70b9\u770b",
+    "\u5173\u6ce8",
+    "\u89c2\u5bdf",
+    "\u98ce\u9669",
+    "\u79bb\u5f00",
+)
+
+REPORT_SUBMISSION_HINTS = (
+    "submit",
+    "submission",
+    "send report",
+    "file report",
+    "make report",
+    "report manually",
+    "\u63d0\u4ea4",
+    "\u5982\u4f55",
+    "\u600e\u4e48",
+    "\u600e\u6837",
+    "\u6211\u8be5",
+)
+
+REPORT_DOMAIN_HINTS = (
+    "report",
+    "manual report",
+    "pool report",
+    "\u4e0a\u62a5",
+    "\u624b\u52a8\u4e0a\u62a5",
+    "\u6cf3\u6c60\u4e0a\u62a5",
+)
+
+REPORT_RULE_HINTS = (
+    "override weather",
+    "override status",
+    "weather status",
+    "reports are needed",
+    "reports needed",
+    "needed to override",
+    "consensus",
+    "unanimous",
+    "distinct users",
+    "\u8986\u76d6",
+    "\u5929\u6c14\u72b6\u6001",
+    "\u9700\u8981\u591a\u5c11",
+    "\u591a\u5c11\u6761",
+    "\u51e0\u6761",
+    "\u5171\u8bc6",
+    "\u4e00\u81f4",
+)
+
+CAPABILITY_QUESTION_HINTS = (
+    "what can you do",
+    "what do you do",
+    "how can you help",
+    "what can i ask",
+    "what should i ask",
+    "what are your capabilities",
+    "your capabilities",
+    "assistant help",
+    "help me use this",
+    "what are you for",
+    "how do i use you",
+    "\u4f60\u80fd\u505a\u4ec0\u4e48",
+    "\u4f60\u53ef\u4ee5\u505a\u4ec0\u4e48",
+    "\u4f60\u80fd\u5e72\u4ec0\u4e48",
+    "\u4f60\u4f1a\u4ec0\u4e48",
+    "\u53ef\u4ee5\u95ee\u4f60\u4ec0\u4e48",
+    "\u6211\u80fd\u95ee\u4f60\u4ec0\u4e48",
+    "\u4f60\u80fd\u5e2e\u6211\u4ec0\u4e48",
+    "\u600e\u4e48\u7528\u4f60",
+    "\u4f7f\u7528\u5e2e\u52a9",
+)
+
+CAPABILITY_QUESTION_EXACT_COMPACT = {
+    "help",
+    "\u5e2e\u52a9",
+    "\u4f60\u80fd\u505a\u4ec0\u4e48",
+    "\u4f60\u53ef\u4ee5\u505a\u4ec0\u4e48",
+    "\u4f60\u80fd\u5e72\u4ec0\u4e48",
+    "\u4f60\u4f1a\u4ec0\u4e48",
+}
+
 
 class ChatbotConfigError(RuntimeError):
     pass
@@ -497,7 +683,9 @@ class ChatbotConfigError(RuntimeError):
 class GraphState(TypedDict, total=False):
     question: str
     original_question: NotRequired[str]
+    question_en: NotRequired[str]
     input_language: NotRequired[str]
+    page_context: NotRequired[list[str]]
     intent: NotRequired[str]
     mode: NotRequired[str]
     context: NotRequired[list[str]]
@@ -1137,6 +1325,17 @@ def _quick_questions_for_unanswerable(question: str) -> list[str]:
     return GENERAL_QUICK_QUESTIONS_EN
 
 
+def _looks_like_capability_question(question: str) -> bool:
+    lowered = (question or "").strip().lower()
+    if not lowered:
+        return False
+
+    compact = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", lowered)
+    if compact in CAPABILITY_QUESTION_EXACT_COMPACT:
+        return True
+    return any(token in lowered for token in CAPABILITY_QUESTION_HINTS)
+
+
 def _is_small_talk_heuristic(question: str) -> bool:
     lowered = (question or "").strip().lower()
     if not lowered:
@@ -1158,6 +1357,26 @@ def _has_database_lookup_intent(lowered_question: str) -> bool:
     if re.search(r"\b(id|#)\s*\d+\b", lowered_question):
         return True
     return False
+
+
+def _looks_like_report_submission_question(question: str) -> bool:
+    lowered = (question or "").strip().lower()
+    if not lowered:
+        return False
+    if _has_database_lookup_intent(lowered):
+        return False
+    has_report_domain = any(token in lowered for token in REPORT_DOMAIN_HINTS)
+    has_submission_signal = any(token in lowered for token in REPORT_SUBMISSION_HINTS)
+    return has_report_domain and has_submission_signal
+
+
+def _looks_like_report_rule_question(question: str) -> bool:
+    lowered = (question or "").strip().lower()
+    if not lowered:
+        return False
+    has_report_domain = any(token in lowered for token in REPORT_DOMAIN_HINTS)
+    has_rule_signal = any(token in lowered for token in REPORT_RULE_HINTS)
+    return has_report_domain and has_rule_signal
 
 
 def _looks_like_policy_question(question: str) -> bool:
@@ -1204,6 +1423,49 @@ def _looks_like_kb_question(question: str) -> bool:
     return any(token in lowered for token in KNOWLEDGE_BASE_HINTS)
 
 
+def _looks_like_live_pool_decision_question(question: str) -> bool:
+    lowered = (question or "").strip().lower()
+    if not lowered:
+        return False
+    has_domain_signal = any(token in lowered for token in LIVE_POOL_DOMAIN_HINTS)
+    has_decision_signal = any(token in lowered for token in LIVE_POOL_DECISION_HINTS)
+    return has_domain_signal and has_decision_signal
+
+
+def _looks_like_live_context_followup_question(question: str) -> bool:
+    lowered = (question or "").strip().lower()
+    if not lowered:
+        return False
+    return any(token in lowered for token in LIVE_CONTEXT_FOLLOWUP_HINTS)
+
+
+def _normalize_page_context_chunks(raw_context: Any) -> list[str]:
+    if isinstance(raw_context, str):
+        candidates = [raw_context]
+    elif isinstance(raw_context, list):
+        candidates = raw_context
+    else:
+        return []
+
+    chunks: list[str] = []
+    total_chars = 0
+    for item in candidates:
+        if not isinstance(item, str):
+            continue
+        text = item.strip()
+        if not text or text in chunks:
+            continue
+        if len(text) > 900:
+            text = text[:899] + "\u2026"
+        if total_chars + len(text) > 3000:
+            break
+        chunks.append(text)
+        total_chars += len(text)
+        if len(chunks) >= 10:
+            break
+    return chunks
+
+
 def _is_backend_rules_question(question: str) -> bool:
     lowered = (question or "").strip().lower()
     if not lowered:
@@ -1241,6 +1503,10 @@ def _normalize_intent(value: str | None) -> str:
         "kb": INTENT_KNOWLEDGE_BASE,
         "rag": INTENT_KNOWLEDGE_BASE,
         "website_knowledge": INTENT_KNOWLEDGE_BASE,
+        "capability": INTENT_CAPABILITY,
+        "capabilities": INTENT_CAPABILITY,
+        "assistant_capability": INTENT_CAPABILITY,
+        "help": INTENT_CAPABILITY,
         "fallback": INTENT_FALLBACK,
         "other": INTENT_FALLBACK,
         "unknown": INTENT_FALLBACK,
@@ -1273,9 +1539,17 @@ def _extract_json_object(raw: str) -> dict[str, Any] | None:
 
 
 def _heuristic_intent(question: str) -> str:
+    if _looks_like_capability_question(question):
+        return INTENT_CAPABILITY
     if _is_small_talk_heuristic(question):
         return INTENT_SMALL_TALK
+    if _looks_like_live_pool_decision_question(question):
+        return INTENT_KNOWLEDGE_BASE
     if _is_backend_rules_question(question):
+        return INTENT_KNOWLEDGE_BASE
+    if _looks_like_report_submission_question(question):
+        return INTENT_KNOWLEDGE_BASE
+    if _looks_like_report_rule_question(question):
         return INTENT_KNOWLEDGE_BASE
     if _looks_like_policy_question(question):
         return INTENT_KNOWLEDGE_BASE
@@ -1286,9 +1560,53 @@ def _heuristic_intent(question: str) -> str:
     return INTENT_FALLBACK
 
 
-def _merge_model_intent_with_heuristic(question: str, model_intent: str | None) -> str:
+def _merge_model_intent_with_heuristic(
+    question: str,
+    model_intent: str | None,
+    fallback_question: str = "",
+) -> str:
     normalized_model_intent = _normalize_intent(model_intent)
     heuristic_intent = _heuristic_intent(question)
+    fallback_heuristic_intent = (
+        _heuristic_intent(fallback_question)
+        if (fallback_question or "").strip()
+        else INTENT_FALLBACK
+    )
+    domain_heuristic_intent = (
+        heuristic_intent
+        if heuristic_intent in {INTENT_DATABASE, INTENT_KNOWLEDGE_BASE}
+        else fallback_heuristic_intent
+        if fallback_heuristic_intent in {INTENT_DATABASE, INTENT_KNOWLEDGE_BASE}
+        else INTENT_FALLBACK
+    )
+
+    if (
+        normalized_model_intent in {INTENT_CAPABILITY, INTENT_SMALL_TALK, INTENT_FALLBACK}
+        and domain_heuristic_intent != INTENT_FALLBACK
+    ):
+        return domain_heuristic_intent
+
+    if _looks_like_capability_question(question) or _looks_like_capability_question(
+        fallback_question
+    ):
+        return INTENT_CAPABILITY
+
+    if normalized_model_intent == INTENT_CAPABILITY and heuristic_intent != INTENT_FALLBACK:
+        return heuristic_intent
+
+    if (
+        normalized_model_intent == INTENT_SMALL_TALK
+        and heuristic_intent in {INTENT_CAPABILITY, INTENT_DATABASE, INTENT_KNOWLEDGE_BASE}
+    ):
+        return heuristic_intent
+
+    # Live status/decision questions are easy for small intent models to mistake
+    # as casual wording; keep them on the context-backed path.
+    if (
+        _looks_like_live_pool_decision_question(question)
+        and normalized_model_intent in {INTENT_SMALL_TALK, INTENT_FALLBACK}
+    ):
+        return INTENT_KNOWLEDGE_BASE
 
     # Policy/rules questions should stay in KB flow even when model drifts to DB.
     if _looks_like_policy_question(question) and normalized_model_intent == INTENT_DATABASE:
@@ -1303,6 +1621,36 @@ def _merge_model_intent_with_heuristic(question: str, model_intent: str | None) 
     return heuristic_intent
 
 
+def _confident_heuristic_intent(question: str, fallback_question: str = "") -> str | None:
+    """Return an intent when heuristics alone are confident, else None.
+
+    This runs BEFORE any intent-model call: most real questions match a
+    deterministic rule, so the (potentially slow, potentially flaky) intent
+    model is only consulted for genuinely ambiguous messages.
+    """
+    text = (question or "").strip()
+    fallback_text = (fallback_question or "").strip()
+    primary = _heuristic_intent(text) if text else INTENT_FALLBACK
+    secondary = _heuristic_intent(fallback_text) if fallback_text else INTENT_FALLBACK
+    domain = (
+        primary
+        if primary in {INTENT_DATABASE, INTENT_KNOWLEDGE_BASE}
+        else secondary
+        if secondary in {INTENT_DATABASE, INTENT_KNOWLEDGE_BASE}
+        else None
+    )
+
+    if primary == INTENT_CAPABILITY:
+        # A domain signal in the paired question overrides a capability-looking
+        # phrasing (mirrors _merge_model_intent_with_heuristic).
+        return domain or INTENT_CAPABILITY
+    if primary == INTENT_SMALL_TALK:
+        return INTENT_SMALL_TALK
+    if domain is not None:
+        return domain
+    return None
+
+
 def _classify_intent(
     question: str, intent_llm: ChatOpenAI, fallback_question: str = ""
 ) -> str:
@@ -1310,6 +1658,10 @@ def _classify_intent(
     fallback_text = (fallback_question or "").strip()
     if not text and not fallback_text:
         return INTENT_FALLBACK
+
+    confident = _confident_heuristic_intent(text or fallback_text, fallback_text if text else "")
+    if confident is not None:
+        return confident
 
     if text:
         try:
@@ -1330,6 +1682,7 @@ def _classify_intent(
                 resolved = _merge_model_intent_with_heuristic(
                     text,
                     str(payload.get("intent", "")),
+                    fallback_question=fallback_text,
                 )
                 if resolved != INTENT_FALLBACK:
                     return resolved
@@ -1732,12 +2085,23 @@ def _build_vector_store(
     )
 
 
-def _build_llm(*, model: str, api_key: str, base_url: str) -> ChatOpenAI:
+def _build_llm(
+    *,
+    model: str,
+    api_key: str,
+    base_url: str,
+    timeout: float | None = None,
+    max_retries: int | None = None,
+) -> ChatOpenAI:
     kwargs: dict[str, Any] = {"model": model, "temperature": 0}
     if api_key:
         kwargs["api_key"] = api_key
     if base_url:
         kwargs["base_url"] = base_url
+    if timeout is not None:
+        kwargs["timeout"] = timeout
+    if max_retries is not None:
+        kwargs["max_retries"] = max_retries
     return ChatOpenAI(**kwargs)
 
 
@@ -2024,7 +2388,12 @@ def _parse_tool_output(raw: str, fallback_tool: str) -> dict[str, Any]:
     }
 
 
-def _run_database_tool_use(question: str, llm: ChatOpenAI, max_tool_calls: int) -> tuple[str, list[str]]:
+def _run_database_tool_use(
+    question: str,
+    llm: ChatOpenAI,
+    max_tool_calls: int,
+    reply_language: str = "en",
+) -> tuple[str, list[str]]:
     tools = _build_database_tools()
     tool_lookup = {tool.name: tool for tool in tools}
     tool_enabled_llm = llm.bind_tools(tools)
@@ -2128,7 +2497,10 @@ def _run_database_tool_use(question: str, llm: ChatOpenAI, max_tool_calls: int) 
             model_kind=MODEL_KIND_QA,
             operation="database_tool_use.qa_summary",
             messages=[
-                SystemMessage(content=DATABASE_SUMMARY_PROMPT),
+                SystemMessage(
+                    content=DATABASE_SUMMARY_PROMPT
+                    + _reply_language_instruction(reply_language)
+                ),
                 HumanMessage(content=json.dumps(summary_payload, ensure_ascii=False)),
             ],
             metadata={"tool_results_count": len(executed_results)},
@@ -2141,10 +2513,18 @@ def _run_database_tool_use(question: str, llm: ChatOpenAI, max_tool_calls: int) 
 
     if not answer:
         has_non_empty_result = any(item.get("result") for item in executed_results)
-        if has_non_empty_result:
-            answer = DEFAULT_UNKNOWN_REPLY_EN
+        if reply_language == "zh":
+            answer = (
+                DEFAULT_UNKNOWN_REPLY_ZH
+                if has_non_empty_result
+                else DEFAULT_DATABASE_EMPTY_REPLY_ZH
+            )
         else:
-            answer = DEFAULT_DATABASE_EMPTY_REPLY_EN
+            answer = (
+                DEFAULT_UNKNOWN_REPLY_EN
+                if has_non_empty_result
+                else DEFAULT_DATABASE_EMPTY_REPLY_EN
+            )
 
     return answer, sources
 
@@ -2160,55 +2540,62 @@ def _build_graph(
     db_tool_max_calls: int,
 ) -> Any:
     def preprocess_node(state: GraphState) -> GraphState:
+        # No upfront translation: intent heuristics are bilingual, the QA
+        # model answers natively in the user's language, and retrieval only
+        # translates lazily when a first-pass search comes back empty. This
+        # removes two LLM round-trips from the hot path.
         original_question = (state.get("question") or "").strip()
+        page_context = _normalize_page_context_chunks(state.get("page_context", []))
         if not original_question:
             return {
                 "question": "",
                 "original_question": "",
                 "input_language": "en",
+                "page_context": page_context,
             }
 
-        input_language = _detect_language(original_question)
-        translated_question = _translate_to_english(
-            original_question,
-            intent_llm,
-            llm,
-        ).strip()
-        if not translated_question:
-            translated_question = original_question
         return {
-            "question": translated_question,
+            "question": original_question,
             "original_question": original_question,
-            "input_language": input_language,
+            "input_language": _detect_language(original_question),
+            "page_context": page_context,
         }
 
     def intent_node(state: GraphState) -> GraphState:
         question = (state.get("question") or "").strip()
         original_question = (state.get("original_question") or "").strip()
-        intent = _classify_intent(
-            question,
-            intent_llm,
-            fallback_question=original_question,
-        )
+        page_context = _normalize_page_context_chunks(state.get("page_context", []))
+        if page_context and (
+            _looks_like_live_pool_decision_question(question)
+            or _looks_like_live_pool_decision_question(original_question)
+            or _looks_like_live_context_followup_question(question)
+            or _looks_like_live_context_followup_question(original_question)
+        ):
+            return {"intent": INTENT_KNOWLEDGE_BASE}
+
+        intent = _classify_intent(question, intent_llm)
         return {"intent": intent}
 
     def retrieve_node(state: GraphState) -> GraphState:
         question = (state.get("question") or "").strip()
         original_question = (state.get("original_question") or "").strip()
+        input_language = str(state.get("input_language") or "en")
         intent = _normalize_intent(state.get("intent"))
+        page_context = _normalize_page_context_chunks(state.get("page_context", []))
         retrieval_question = question or original_question
         if not retrieval_question:
             return {"mode": INTENT_FALLBACK, "context": [], "sources": []}
 
-        if intent in {INTENT_SMALL_TALK, INTENT_DATABASE, INTENT_FALLBACK}:
+        if intent in {INTENT_SMALL_TALK, INTENT_DATABASE, INTENT_CAPABILITY, INTENT_FALLBACK}:
             return {"mode": intent, "context": [], "sources": []}
 
         is_backend_rules = _is_backend_rules_question(question) or _is_backend_rules_question(
             original_question
         )
-        context: list[str] = []
-        sources: list[str] = []
+        context: list[str] = list(page_context)
+        sources: list[str] = ["app://homepage/live-status"] if page_context else []
         backend_priority_docs: list[Document] = []
+        question_en = ""
 
         if is_backend_rules:
             # Keep backend snapshots as fallback context for backend-rule questions.
@@ -2216,6 +2603,31 @@ def _build_graph(
             backend_priority_docs = _load_backend_priority_docs(vector_store, top_k)
 
         matched = _search_with_optional_scores(vector_store, retrieval_question, top_k)
+
+        # Second chance for non-English questions: when there is no page
+        # context and nothing clears the score threshold, translate the query
+        # once (QA model, bounded) and merge the English-query matches in.
+        # Most KB chunks are English, so this recovers questions the
+        # multilingual embedding missed.
+        if input_language != "en" and not context:
+            has_confident_match = any(
+                score is not None and score >= min_score for _doc, score in matched
+            )
+            if not has_confident_match:
+                question_en = _translate_to_english(retrieval_question, llm, llm).strip()
+                if question_en and question_en != retrieval_question:
+                    seen_texts = {
+                        (getattr(doc, "page_content", "") or "").strip()
+                        for doc, _score in matched
+                    }
+                    for doc, score in _search_with_optional_scores(
+                        vector_store, question_en, top_k
+                    ):
+                        text = (getattr(doc, "page_content", "") or "").strip()
+                        if text in seen_texts:
+                            continue
+                        matched.append((doc, score))
+                        seen_texts.add(text)
 
         for doc, score in matched:
             if score is not None and score < min_score:
@@ -2262,14 +2674,31 @@ def _build_graph(
                 if len(context) >= top_k:
                     break
 
-        return {"mode": INTENT_KNOWLEDGE_BASE, "context": context, "sources": sources}
+        return {
+            "mode": INTENT_KNOWLEDGE_BASE,
+            "context": context,
+            "sources": sources,
+            "question_en": question_en,
+        }
 
     def generate_node(state: GraphState) -> GraphState:
         mode = _normalize_intent(state.get("mode"))
         question = (state.get("question") or "").strip()
         original_question = (state.get("original_question") or "").strip()
+        input_language = str(state.get("input_language") or "en")
+        # English retrieval query (if one was computed) ranks related FAQ
+        # entries better than raw non-English text.
+        faq_rank_question = (state.get("question_en") or "").strip() or question or original_question
         context_list = state.get("context", []) or []
-        unknown_reply = DEFAULT_UNKNOWN_REPLY_EN
+        unknown_reply = _unknown_reply_for_question(original_question or question)
+        language_line = _reply_language_instruction(input_language)
+
+        if mode == INTENT_CAPABILITY:
+            return {
+                "answer": _capability_answer_for_language(input_language),
+                "sources": [],
+                "quick_questions": STARTER_QUICK_QUESTIONS_EN,
+            }
 
         if mode == INTENT_SMALL_TALK:
             response = _invoke_llm_with_failure_logging(
@@ -2277,7 +2706,7 @@ def _build_graph(
                 model_kind=MODEL_KIND_QA,
                 operation="generate_answer.small_talk.qa",
                 messages=[
-                    SystemMessage(content=SMALL_TALK_SYSTEM_PROMPT),
+                    SystemMessage(content=SMALL_TALK_SYSTEM_PROMPT + language_line),
                     HumanMessage(content=question),
                 ],
                 metadata={"mode": INTENT_SMALL_TALK},
@@ -2288,7 +2717,7 @@ def _build_graph(
             quick_questions: list[str] = []
             if answer == unknown_reply:
                 quick_questions = _quick_questions_from_similar_context(
-                    question=question or original_question,
+                    question=faq_rank_question,
                     context_chunks=[],
                     vector_store=vector_store,
                     llm=llm,
@@ -2308,15 +2737,21 @@ def _build_graph(
                     question=question,
                     llm=llm,
                     max_tool_calls=db_tool_max_calls,
+                    reply_language=input_language,
                 )
             except Exception:
-                answer = DEFAULT_DATABASE_EMPTY_REPLY_EN
+                answer = _database_empty_reply_for_question(original_question or question)
                 db_sources = []
 
             quick_questions: list[str] = []
-            if answer in {DEFAULT_UNKNOWN_REPLY_EN, DEFAULT_DATABASE_EMPTY_REPLY_EN}:
+            if answer in {
+                DEFAULT_UNKNOWN_REPLY_EN,
+                DEFAULT_UNKNOWN_REPLY_ZH,
+                DEFAULT_DATABASE_EMPTY_REPLY_EN,
+                DEFAULT_DATABASE_EMPTY_REPLY_ZH,
+            }:
                 quick_questions = _quick_questions_from_similar_context(
-                    question=question or original_question,
+                    question=faq_rank_question,
                     context_chunks=[],
                     vector_store=vector_store,
                     llm=llm,
@@ -2336,7 +2771,7 @@ def _build_graph(
                     "answer": unknown_reply,
                     "sources": [],
                     "quick_questions": _quick_questions_from_similar_context(
-                        question=question or original_question,
+                        question=faq_rank_question,
                         context_chunks=[],
                         vector_store=vector_store,
                         llm=llm,
@@ -2352,7 +2787,7 @@ def _build_graph(
                 model_kind=MODEL_KIND_QA,
                 operation="generate_answer.knowledge_base.qa",
                 messages=[
-                    SystemMessage(content=RAG_SYSTEM_PROMPT),
+                    SystemMessage(content=RAG_SYSTEM_PROMPT + language_line),
                     HumanMessage(
                         content=(
                             f"User question:\n{question}\n\n"
@@ -2369,7 +2804,7 @@ def _build_graph(
             quick_questions: list[str] = []
             if answer == unknown_reply:
                 quick_questions = _quick_questions_from_similar_context(
-                    question=question or original_question,
+                    question=faq_rank_question,
                     context_chunks=context_list,
                     vector_store=vector_store,
                     llm=llm,
@@ -2384,10 +2819,10 @@ def _build_graph(
             }
 
         return {
-            "answer": DEFAULT_FALLBACK_REPLY_EN,
+            "answer": _fallback_reply_for_question(original_question or question),
             "sources": [],
             "quick_questions": _quick_questions_from_similar_context(
-                question=question or original_question,
+                question=faq_rank_question,
                 context_chunks=context_list,
                 vector_store=vector_store,
                 llm=llm,
@@ -2400,8 +2835,19 @@ def _build_graph(
     def localize_node(state: GraphState) -> GraphState:
         input_language = str(state.get("input_language") or "en")
         raw_answer = _extract_text_content(state.get("answer", ""))
-        answer = raw_answer or DEFAULT_UNKNOWN_REPLY_EN
-        localized_answer = _translate_from_english(answer, input_language, llm)
+        answer = raw_answer or _unknown_reply_for_question(
+            state.get("original_question") or ""
+        )
+
+        # Answers are generated directly in the user's language, so this is
+        # only a safety net: translate when the model ignored the language
+        # instruction (for example an English answer to a Chinese question).
+        if (
+            input_language != "en"
+            and answer
+            and _detect_language(answer) == "en"
+        ):
+            answer = _translate_from_english(answer, input_language, llm)
 
         base_quick_questions = _normalize_quick_questions(state.get("quick_questions", []))
         quick_questions = _translate_quick_questions(
@@ -2412,7 +2858,7 @@ def _build_graph(
         if not quick_questions and input_language == "en":
             quick_questions = base_quick_questions
         return {
-            "answer": localized_answer,
+            "answer": answer,
             "quick_questions": quick_questions,
         }
 
@@ -2521,11 +2967,21 @@ def get_rag_app(
             table_name=table_name,
             query_name=query_name,
         )
-        llm = _build_llm(model=chat_model, api_key=openai_key, base_url=openai_base_url)
+        llm = _build_llm(
+            model=chat_model,
+            api_key=openai_key,
+            base_url=openai_base_url,
+            timeout=45.0,
+        )
+        # The intent model is only a tie-breaker for ambiguous questions;
+        # keep its latency strictly bounded so a slow/free-tier model can
+        # never stall the whole conversation.
         intent_llm = _build_llm(
             model=intent_model,
             api_key=intent_api_key,
             base_url=intent_base_url,
+            timeout=10.0,
+            max_retries=1,
         )
         _cached_graph = _build_graph(
             llm=llm,

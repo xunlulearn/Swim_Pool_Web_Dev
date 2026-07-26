@@ -16,7 +16,7 @@
 
 **A:** The system uses a Finite State Machine with the following priority:
 1. **Outside operating hours** → RED (Closed).
-2. **Community consensus** → If 5 different verified users unanimously report Open or Closed within the last 10 minutes, the system adopts that consensus and overrides weather data.
+2. **Community consensus** → If 5 different verified human users unanimously report Open or Closed within the last 10 minutes, the system adopts that consensus and overrides weather data. Reports from community bot accounts are excluded from consensus.
 3. **Weather data unavailable** → AMBER (Warning).
 4. **Lightning alert** → If the nearest lightning strike is ≤ 15 km from NTU SRC (coordinates: 1.349384, 103.687755), the pool closes with a **45-minute cooldown**. During the cooldown, the status remains RED even if lightning moves away, and the page shows an estimated reopening countdown.
 5. **Heavy rain** → If rainfall exceeds 5 mm/h, the pool closes with a **30-minute cooldown** (same logic as lightning).
@@ -89,7 +89,7 @@
 
 ### Q: What is "Manual Report" and why does it matter?
 
-**A:** Manual Report is a crowdsourcing feature that helps bridge the gap caused by weather data delays. Users can click the "+ Report" button on the homepage to report whether the pool is currently **Open** or **Closed**. The latest 10 reports are displayed below the status panel. When **5 different verified users** unanimously report the same status within **10 minutes**, the system adopts that consensus and **overrides the automated weather judgment**.
+**A:** Manual Report is a crowdsourcing feature that helps bridge the gap caused by weather data delays. Users can click the "+ Report" button on the homepage to report whether the pool is currently **Open** or **Closed**. The latest 10 reports from the past 24 hours are displayed below the status panel. When **5 different verified users** unanimously report the same status within **10 minutes**, the system adopts that consensus and **overrides the automated weather judgment**.
 
 ---
 
@@ -121,7 +121,7 @@ Click the "+ Report" button, select the appropriate status from the dropdown, an
 
 ### Q: How long before a report expires?
 
-**A:** Reports older than **2 hours** are automatically dimmed on the frontend (reduced opacity and saturation) to indicate they may be outdated. The page always shows only the latest 10 reports.
+**A:** Reports older than **2 hours** are automatically dimmed on the frontend (reduced opacity and saturation) to indicate they may be outdated. The page shows only the latest 10 reports from the past 24 hours; anything older is hidden entirely.
 
 ---
 
@@ -133,7 +133,7 @@ Click the "+ Report" button, select the appropriate status from the dropdown, an
 
 ### Q: Can manual reports override the automated weather system?
 
-**A:** Only when **strict conditions** are met: at least **5 different users** must have submitted reports within the last **30 minutes**, the most recent **5 reports must all agree** (all Open or all Closed), and the latest report must be no older than **10 minutes**. Only when all conditions are satisfied will the system adopt the community consensus.
+**A:** Only when **strict conditions** are met: at least **5 different human users** (bot accounts excluded) must have submitted reports within the last **30 minutes**, the most recent **5 reports must all agree** (all Open or all Closed), and the latest report must be no older than **10 minutes**. Only when all conditions are satisfied will the system adopt the community consensus.
 
 ---
 

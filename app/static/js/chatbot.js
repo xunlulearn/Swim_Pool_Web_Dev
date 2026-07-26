@@ -115,6 +115,16 @@
         }
         return normalizeLocale(fallbackLocale);
     };
+    const getStarterQuickQuestions = (locale = activeLocale) => {
+        const datasetKey =
+            normalizeLocale(locale) === "zh" ? "starterQuestionsZh" : "starterQuestionsEn";
+        const raw = panel.dataset[datasetKey] || panel.dataset.starterQuestionsEn || "";
+        return raw
+            .split("|")
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .slice(0, 3);
+    };
 
     let hintDismissedForSession = false;
     let statusAnimationTimer = null;
@@ -144,6 +154,41 @@
         document.querySelectorAll('input[name="csrf_token"]').forEach((inputEl) => {
             inputEl.value = normalized;
         });
+    };
+
+    const readTextById = (id) => {
+        const node = document.getElementById(id);
+        return String(node?.textContent || "").trim();
+    };
+
+    const buildPageContext = () => {
+        const globalContext =
+            window.NTUPoolHomeContext && typeof window.NTUPoolHomeContext === "object"
+                ? { ...window.NTUPoolHomeContext }
+                : {};
+
+        const fallbackContext = {
+            status_text: readTextById("status-text"),
+            status_message: readTextById("status-message"),
+            nearest_lightning: readTextById("metric-distance"),
+            lightning_count: readTextById("metric-count"),
+            rainfall: readTextById("metric-rainfall"),
+            lightning_trend_summary: readTextById("lightning-trend-summary"),
+        };
+
+        const selectedDistance = document.querySelector(".lightning-filter-btn.bg-ntu-blue[data-distance-filter]");
+        const selectedWindow = document.querySelector(".lightning-filter-btn.bg-ntu-blue[data-window-filter]");
+        if (selectedDistance?.dataset.distanceFilter) {
+            fallbackContext.selected_lightning_radius = selectedDistance.dataset.distanceFilter;
+        }
+        if (selectedWindow?.dataset.windowFilter) {
+            fallbackContext.selected_lightning_window = selectedWindow.dataset.windowFilter;
+        }
+
+        return {
+            ...fallbackContext,
+            ...globalContext,
+        };
     };
 
     const isCsrfErrorPayload = (response, payload) => {
@@ -527,7 +572,15 @@
                 "inline-flex min-h-[36px] max-w-full items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-left text-xs text-slate-700 shadow-sm transition-all duration-200 hover:border-ntu-blue/40 hover:bg-white hover:text-ntu-blue focus:outline-none focus:ring-2 focus:ring-ntu-blue/30";
             btn.textContent = text;
             btn.addEventListener("click", () => {
-                if (!isAuthenticated || !input || !sendBtn || sendBtn.disabled) {
+                if (!isAuthenticated) {
+                    statusEl.textContent = getUiText("loginRequired", uiLocale);
+                    openPanel();
+                    if (loginLink) {
+                        loginLink.focus();
+                    }
+                    return;
+                }
+                if (!input || !sendBtn || sendBtn.disabled) {
                     return;
                 }
                 input.value = text;
@@ -540,6 +593,22 @@
             wrap.appendChild(list);
             bubble.appendChild(wrap);
         }
+    };
+
+    const renderStarterQuickQuestions = () => {
+        const welcomeBubble = thread.querySelector("[data-chatbot-welcome-bubble='1']");
+        if (!welcomeBubble) {
+            return;
+        }
+        if (welcomeBubble.querySelector("[data-chatbot-quick-questions='1']")) {
+            return;
+        }
+        const starterQuestions = getStarterQuickQuestions(activeLocale);
+        appendQuickQuestions({
+            bubble: welcomeBubble,
+            quickQuestions: starterQuestions,
+            locale: activeLocale,
+        });
     };
 
     const clearQuickQuestionPrompts = () => {
@@ -678,7 +747,10 @@
                         "X-CSRFToken": token,
                     },
                     credentials: "same-origin",
-                    body: JSON.stringify({ message }),
+                    body: JSON.stringify({
+                        message,
+                        page_context: buildPageContext(),
+                    }),
                 });
 
             let response = await makeRequest(csrfToken);
@@ -902,5 +974,6 @@
         });
     }
 
+    renderStarterQuickQuestions();
     window.setTimeout(showHintIfAllowed, 700);
 })();

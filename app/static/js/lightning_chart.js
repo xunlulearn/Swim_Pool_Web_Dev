@@ -77,6 +77,13 @@ document.addEventListener('DOMContentLoaded', () => {
         chart: null,
     };
 
+    function mergeHomeContext(partialContext) {
+        window.NTUPoolHomeContext = {
+            ...(window.NTUPoolHomeContext || {}),
+            ...(partialContext || {})
+        };
+    }
+
     function toNumberArray(values) {
         return (values || []).map((value) => {
             const num = Number(value);
@@ -204,6 +211,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderSummary(windowData, rawSeries) {
         if (!windowData) {
             ui.summary.textContent = 'No lightning trend data available.';
+            mergeHomeContext({
+                selected_lightning_radius: state.distance,
+                selected_lightning_window: state.window,
+                lightning_trend_summary: ui.summary.textContent
+            });
             return;
         }
 
@@ -215,6 +227,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const displayLabel = windowData.display_label || state.window;
 
         ui.summary.textContent = `${displayLabel} | ${getDistanceLabel()} total: ${safeTotal} strikes`;
+        mergeHomeContext({
+            selected_lightning_radius: state.distance,
+            selected_lightning_window: state.window,
+            lightning_trend_summary: ui.summary.textContent,
+            lightning_trend_payload: {
+                observation_time_sgt: state.payload?.observation_time_sgt || '',
+                generated_at: state.payload?.generated_at || '',
+                active_window: state.window,
+                active_radius: state.distance,
+                active_total: safeTotal,
+                totals: totals
+            }
+        });
     }
 
     function renderMeta() {

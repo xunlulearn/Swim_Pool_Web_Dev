@@ -2,7 +2,12 @@ name: Community Bot Posts
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    # Pool operating hours only (SGT 07:00-21:30 == UTC 23:00-13:30).
+    # The app-side scheduler is the source of truth and also skips ticks
+    # outside the (buffered) operating window; this schedule just avoids
+    # burning Actions minutes overnight. GitHub cron is UTC.
+    - cron: "*/30 23 * * *"
+    - cron: "*/30 0-13 * * *"
   workflow_dispatch:
 
 jobs:

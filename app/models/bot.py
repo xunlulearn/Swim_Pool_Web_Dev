@@ -25,6 +25,11 @@ class BotDailyPostPlan(TimestampMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     day = db.Column(db.String(10), nullable=False, unique=True)
     target_count = db.Column(db.Integer, nullable=False)
+    # Daily targets for non-post bot activity (nullable so legacy rows load;
+    # the scheduler backfills them lazily).
+    report_target_count = db.Column(db.Integer)
+    comment_target_count = db.Column(db.Integer)
+    like_target_count = db.Column(db.Integer)
 
 
 class BotActivityLog(db.Model):

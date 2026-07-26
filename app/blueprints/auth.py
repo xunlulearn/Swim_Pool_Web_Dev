@@ -14,6 +14,7 @@ auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
 OTP_EXPIRY_MINUTES = 10
 OTP_MAX_ATTEMPTS = 5
 OTP_LOCK_MINUTES = 15
+OTP_RESEND_COOLDOWN_SECONDS = 60
 MIN_PASSWORD_LENGTH = 8
 
 
@@ -381,7 +382,25 @@ def resend_confirmation():
         )
         return redirect(url_for('auth.verify_otp'))
 
+    # Cooldown between resends: protects mail quota and sender reputation.
+    last_sent_raw = session.get('otp_last_sent_at')
+    if last_sent_raw:
+        try:
+            last_sent = datetime.fromisoformat(last_sent_raw)
+        except (TypeError, ValueError):
+            last_sent = None
+        if last_sent is not None:
+            elapsed = (now_utc() - last_sent).total_seconds()
+            if elapsed < OTP_RESEND_COOLDOWN_SECONDS:
+                wait_seconds = int(OTP_RESEND_COOLDOWN_SECONDS - elapsed) + 1
+                flash(
+                    f'Please wait {wait_seconds} second(s) before requesting another code.',
+                    'warning',
+                )
+                return redirect(url_for('auth.verify_otp'))
+
     send_verification_email(current_user)
+    session['otp_last_sent_at'] = now_utc().isoformat()
     flash('A new verification code has been sent to your email.', 'success')
     return redirect(url_for('auth.verify_otp'))
 

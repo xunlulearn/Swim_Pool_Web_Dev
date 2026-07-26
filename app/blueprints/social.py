@@ -1,5 +1,5 @@
 from functools import wraps
-from flask import Blueprint, render_template, request, flash, redirect, url_for, jsonify, abort, current_app
+from flask import Blueprint, render_template, request, flash, redirect, url_for, jsonify, abort, current_app, Response
 import base64
 from flask_login import login_required, current_user
 from app.models.content import Post, Comment
@@ -10,6 +10,7 @@ from app.models.user import User
 from app.extensions import db
 from sqlalchemy import or_, and_, func
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import load_only, selectinload
 
 social_bp = Blueprint('social', __name__, url_prefix='/social')
 ALLOWED_IMAGE_MIME_TYPES = {'image/jpeg', 'image/png'}
@@ -71,30 +72,125 @@ def admin_required(f):
 
 # ============== Post List (Community Feed) ==============
 
+MAX_SEARCH_QUERY_LENGTH = 80
+
+
 @social_bp.route('/')
 def feed():
-    """Community feed - post list with pagination"""
+    """Community feed - post list with search, category filter and pagination"""
     category = request.args.get('category', 'all')
     page = request.args.get('page', 1, type=int)
+    search_query = (request.args.get('q') or '').strip()[:MAX_SEARCH_QUERY_LENGTH]
     per_page = 20  # 每页显示20个帖子
-    
+
     # Base query: exclude soft-deleted posts
     query = Post.query.filter_by(is_deleted=False)
-    
+
     # Category filter
     if category != 'all':
         query = query.filter_by(category=category)
-    
-    # Pinned posts first, then by date descending, with pagination
-    pagination = query.order_by(Post.is_pinned.desc(), Post.created_at.desc()).paginate(
-        page=page, per_page=per_page, error_out=False
+
+    # Keyword search across title and body (case-insensitive).
+    if search_query:
+        escaped = (
+            search_query.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+        )
+        like_pattern = f'%{escaped}%'
+        query = query.filter(
+            or_(
+                Post.title.ilike(like_pattern, escape='\\'),
+                Post.body.ilike(like_pattern, escape='\\'),
+            )
+        )
+
+    query = query.options(
+        load_only(
+            Post.id,
+            Post.title,
+            Post.body,
+            Post.image_url,
+            Post.image_mimetype,
+            Post.category,
+            Post.is_pinned,
+            Post.view_count,
+            Post.author_id,
+            Post.created_at,
+        ),
+        selectinload(Post.author).load_only(
+            User.id,
+            User.username,
+            User.nickname,
+            User.avatar_url,
+            User.avatar_mimetype,
+            User.is_bot,
+        ),
     )
-    posts = pagination.items
     
-    return render_template('social/feed.html', 
-                           posts=posts, 
+    # Pinned posts first (unless searching), then by date descending.
+    if search_query:
+        ordered = query.order_by(Post.created_at.desc())
+    else:
+        ordered = query.order_by(Post.is_pinned.desc(), Post.created_at.desc())
+    pagination = ordered.paginate(page=page, per_page=per_page, error_out=False)
+    posts = pagination.items
+
+    post_ids = [post.id for post in posts]
+    like_counts = {}
+    comment_counts = {}
+    if post_ids:
+        like_counts = dict(
+            db.session.query(Like.post_id, func.count(Like.id))
+            .filter(Like.post_id.in_(post_ids))
+            .group_by(Like.post_id)
+            .all()
+        )
+        comment_counts = dict(
+            db.session.query(Comment.post_id, func.count(Comment.id))
+            .filter(
+                Comment.post_id.in_(post_ids),
+                Comment.is_deleted.is_(False),
+            )
+            .group_by(Comment.post_id)
+            .all()
+        )
+    
+    return render_template('social/feed.html',
+                           posts=posts,
                            current_category=category,
-                           pagination=pagination)
+                           search_query=search_query,
+                           pagination=pagination,
+                           like_counts=like_counts,
+                           comment_counts=comment_counts)
+
+
+def _binary_response(data, mimetype):
+    if not data or not mimetype:
+        abort(404)
+    response = Response(data, mimetype=mimetype)
+    response.headers['Cache-Control'] = 'public, max-age=86400'
+    return response
+
+
+@social_bp.route('/media/post/<int:post_id>/image')
+def post_image(post_id):
+    """Stream a post image without inlining it into feed HTML."""
+    row = (
+        db.session.query(Post.image, Post.image_mimetype)
+        .filter(Post.id == post_id, Post.is_deleted.is_(False))
+        .first_or_404()
+    )
+    return _binary_response(row.image, row.image_mimetype)
+
+
+@social_bp.route('/media/user/<int:user_id>/avatar')
+def user_avatar(user_id):
+    """Stream a user avatar without loading avatar blobs in the feed query."""
+    row = (
+        db.session.query(User.avatar, User.avatar_mimetype)
+        .filter(User.id == user_id)
+        .first_or_404()
+    )
+    return _binary_response(row.avatar, row.avatar_mimetype)
 
 
 # ============== Post Detail ==============
@@ -403,7 +499,21 @@ def report_post(post_id):
     if not reason:
         flash('Please enter a reason for reporting.', 'error')
         return redirect(url_for('social.post_detail', post_id=post_id))
-    
+
+    if post.author_id == current_user.id:
+        flash('You cannot report your own post.', 'warning')
+        return redirect(url_for('social.post_detail', post_id=post_id))
+
+    # One report per user per post (same rule as comment reports).
+    existing = ContentReport.query.filter_by(
+        reporter_id=current_user.id,
+        target_type='post',
+        target_id=post_id
+    ).first()
+    if existing:
+        flash('You have already reported this post.', 'info')
+        return redirect(url_for('social.post_detail', post_id=post_id))
+
     report = ContentReport(
         reporter_id=current_user.id,
         target_type='post',
@@ -412,7 +522,7 @@ def report_post(post_id):
     )
     db.session.add(report)
     db.session.commit()
-    
+
     flash('Report submitted. An admin will review it shortly.', 'success')
     return redirect(url_for('social.post_detail', post_id=post_id))
 

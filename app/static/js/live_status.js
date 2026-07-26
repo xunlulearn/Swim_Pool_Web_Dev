@@ -6,6 +6,34 @@ document.addEventListener('DOMContentLoaded', () => {
     const API_URL = '/api/live-status/';
     const CSRF_ERROR_TEXT = 'invalid or missing csrf token';
 
+    function showToast(message, tone = 'success') {
+        let container = document.getElementById('toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'toast-container';
+            container.className = 'fixed bottom-6 left-1/2 -translate-x-1/2 z-[70] flex flex-col items-center gap-2 pointer-events-none';
+            document.body.appendChild(container);
+        }
+
+        const palette = tone === 'error'
+            ? 'bg-rose-600 text-white'
+            : (tone === 'info' ? 'bg-slate-700 text-white' : 'bg-emerald-600 text-white');
+
+        const toast = document.createElement('div');
+        toast.setAttribute('role', 'status');
+        toast.className = `${palette} px-4 py-2.5 rounded-xl shadow-lg text-sm font-medium transition-all duration-300 opacity-0 translate-y-2`;
+        toast.textContent = message;
+        container.appendChild(toast);
+
+        requestAnimationFrame(() => {
+            toast.classList.remove('opacity-0', 'translate-y-2');
+        });
+        setTimeout(() => {
+            toast.classList.add('opacity-0', 'translate-y-2');
+            setTimeout(() => toast.remove(), 350);
+        }, 2600);
+    }
+
     function getCsrfToken() {
         const meta = document.querySelector('meta[name="csrf-token"]');
         return meta ? String(meta.getAttribute('content') || '').trim() : '';
@@ -158,7 +186,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     const csrfToken = await resolveCsrfToken();
                     if (!csrfToken) {
-                        alert('Error: CSRF token missing, please refresh and retry.');
+                        showToast('Session expired — please refresh the page and retry.', 'error');
                         return;
                     }
 
@@ -180,14 +208,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     if (res.ok) {
-                        alert('Thanks for your report!');
+                        showToast('Thanks for your report!');
                         reportOptions.classList.add('hidden');
                         fetchReports();
                     } else {
-                        alert('Error: ' + (err.error || 'Failed to submit'));
+                        showToast(err.error || 'Failed to submit report.', 'error');
                     }
                 } catch (err) {
-                    alert('Network error');
+                    showToast('Network error — please try again.', 'error');
                 }
             });
         });

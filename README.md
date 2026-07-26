@@ -55,9 +55,13 @@ The home page also includes a radar-style lightning map backed by `GET /weather/
 
 A dedicated space for NTU swimmers:
 - Users can create posts, comments, and likes.
+- Keyword search across post titles and bodies (works with category filters).
 - Users can find swimming partners and organize meetups.
 - Lost-and-found communication support.
 - Profile customization (avatar and nickname).
+- Ambience bot accounts post, report, comment, and like — only during pool
+  operating hours, randomly spread across the day, excluded from status
+  consensus (see `product_docs/product_community_bot.md`).
 
 ## User Roles and Permissions
 
@@ -212,6 +216,27 @@ Common commands:
 - `dev.bat sync --full-rebuild`
 - `dev.bat git-push "chore(repo): your message"`
 
+
+## Scheduled Workflows (GitHub Actions)
+
+Two workflows drive background activity. Both call authenticated cron
+endpoints with `Authorization: Bearer $CRON_SECRET`:
+
+| Workflow | Schedule (UTC) | Endpoint | Secrets |
+| :--- | :--- | :--- | :--- |
+| `community-bot-posts.yml` | `*/30 23 * * *` + `*/30 0-13 * * *` (SGT operating hours only) | `/api/cron/community-posts` | `COMMUNITY_BOT_CRON_URL`, `CRON_SECRET` |
+| `collect-lightning.yml` | `*/10 * * * *` | `/api/cron/collect-lightning` | `LIGHTNING_CRON_URL`, `CRON_SECRET` |
+
+Notes:
+- The community bot scheduler is additionally gated in the app: outside the
+  buffered SGT operating window every tick is a no-op, and daily targets are
+  spread randomly across the open window.
+- `collect-lightning.yml` exists because the in-process collector thread does
+  not survive on Vercel serverless; without it the 12-hour lightning chart
+  develops gaps whenever nobody is browsing.
+- GitHub disables scheduled workflows after ~60 days without repo activity;
+  re-enable them from the Actions tab if pushes have been quiet.
+
 ## Weather Engine Runtime Flags
 
 The following environment variables control weather data behavior:
@@ -273,6 +298,8 @@ For Vercel and LangGraph/LangChain chatbot deployment details, see
    - `chatbot_intent_model_failures`
    - `chatbot_qa_model_failures`
 13. Browser chat flows recover from stale CSRF tokens by requesting `GET /api/csrf-token` and retrying once on CSRF `400`.
+14. Per-user rate limits protect the LLM budget: burst limit (default 8 msg/min) and daily cap (default 80/day, counted via Supabase, fail-open). HTTP 429 with a bilingual message when exceeded.
+15. Routing is heuristic-first: the external intent model is only consulted for ambiguous messages (10s timeout). Answers are generated directly in the user's language; no upfront translation step.
 
 ## Chatbot Knowledge Sync
 

@@ -12,8 +12,10 @@ class _FakeGraph:
     def __init__(self, result=None, error=None):
         self._result = result or {}
         self._error = error
+        self.invocations = []
 
-    def invoke(self, _state):
+    def invoke(self, state):
+        self.invocations.append(state)
         if self._error is not None:
             raise self._error
         return self._result
@@ -103,6 +105,81 @@ def test_chat_success_returns_reply_sources_and_feedback_metadata(auth_client, m
         "How can I submit a manual pool report?",
     ]
     assert "feedback_prompt" in data
+
+
+def test_chat_passes_homepage_context_to_rag_app(auth_client, mocker):
+    fake_graph = _FakeGraph(result={"answer": "The pool is open."})
+    mocker.patch("app.blueprints.chatbot.get_rag_app", return_value=fake_graph)
+    mocker.patch(
+        "app.blueprints.chatbot._persist_chatbot_exchange",
+        return_value={
+            "conversation_id": "93ab65e7-18cc-4913-8521-5ca4c2410f2b",
+            "message_counter": 1,
+            "feedback_required": False,
+        },
+    )
+    mocker.patch(
+        "app.blueprints.chatbot._build_homepage_context",
+        return_value=[
+            "Current homepage status: OPEN.",
+            "Lightning trend 20 min <= 15 km total: 0 strikes.",
+        ],
+    )
+
+    response = auth_client.post(
+        "/api/chat",
+        json={
+            "message": "\u5f53\u524d\u6cf3\u6c60\u662f\u5f00\u653e\u7684\u5417",
+            "page_context": {
+                "selected_lightning_radius": "15km",
+                "selected_lightning_window": "20m",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert fake_graph.invocations[0] == {
+        "question": "\u5f53\u524d\u6cf3\u6c60\u662f\u5f00\u653e\u7684\u5417",
+        "page_context": [
+            "Current homepage status: OPEN.",
+            "Lightning trend 20 min <= 15 km total: 0 strikes.",
+        ],
+    }
+
+
+def test_homepage_context_includes_lightning_trend_safety_guidance(mocker, app):
+    class _State:
+        name = "GREEN"
+        value = "Open"
+
+    class _WeatherEngine:
+        def get_overall_status(self):
+            return (
+                _State(),
+                "Pool is Open",
+                {
+                    "min_distance_km": 999,
+                    "lightning_count": 0,
+                    "rainfall_rate": 0,
+                },
+            )
+
+        def get_lightning_history(self):
+            return {"charts": {}, "metadata": {}}
+
+    mocker.patch("app.services.weather_engine.weather_engine", _WeatherEngine())
+    with app.app_context():
+        lines = __import__(
+            "app.blueprints.chatbot",
+            fromlist=["_build_homepage_context"],
+        )._build_homepage_context()
+
+    safety_text = " ".join(lines).lower()
+    assert "lightning trend worsens" in safety_text
+    assert "leave the water" in safety_text
+    assert "15 km" in safety_text
+    assert "next 30 minutes" in safety_text
+    assert "nearest lightning" in safety_text
 
 
 def test_chat_stream_success_returns_deltas_and_final_payload(auth_client, mocker):

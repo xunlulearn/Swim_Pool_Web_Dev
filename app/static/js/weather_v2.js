@@ -65,6 +65,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const allMetricCardRiskClasses = Object.values(metricCardRiskClasses).flat();
     const allMetricValueRiskClasses = Object.values(metricValueRiskClasses);
 
+    function mergeHomeContext(partialContext) {
+        window.NTUPoolHomeContext = {
+            ...(window.NTUPoolHomeContext || {}),
+            ...(partialContext || {})
+        };
+    }
+
     function toPlainMessage(message) {
         let text = String(message || '');
         text = text.split('<br />').join('\n');
@@ -360,6 +367,21 @@ document.addEventListener('DOMContentLoaded', () => {
             // 5. Update Time
             const now = new Date();
             ui.updated.textContent = now.toLocaleTimeString();
+            mergeHomeContext({
+                status_text: config.text,
+                status_message: toBilingualMessage(data.message),
+                nearest_lightning: ui.dist.textContent,
+                lightning_count: ui.count.textContent,
+                rainfall: ui.rainfall.textContent,
+                weather_status_payload: {
+                    status: data.status,
+                    display_text: data.display_text,
+                    message: data.message,
+                    details,
+                    data_source: data.data_source,
+                    updated_at_local: now.toISOString()
+                }
+            });
             hasLoadedWeather = true;
 
         } catch (error) {
@@ -378,6 +400,13 @@ document.addEventListener('DOMContentLoaded', () => {
             ui.count.textContent = '--';
             ui.rainfall.textContent = '-- mm/h';
             applyUnknownMetricStyles();
+            mergeHomeContext({
+                status_text: 'OFFLINE',
+                status_message: toBilingualMessage('Unable to reach weather service.'),
+                nearest_lightning: '-- km',
+                lightning_count: '--',
+                rainfall: '-- mm/h'
+            });
         }
     }
 

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from threading import Lock
 
 from flask import Blueprint, current_app, jsonify, request
@@ -65,12 +65,15 @@ def _serialize_report_row(*, report_id, status, created_at, username, nickname="
 
 @live_status_bp.route('/', methods=['GET'])
 def get_reports():
-    # Always show the latest 10 reports on the homepage feed.
+    # Show the latest 10 reports on the homepage feed, but never anything
+    # older than 24 hours: a wall of yesterday's reports reads as the
+    # current pool status and misleads visitors.
     cached = _get_cached_reports()
     if cached is not None:
         return jsonify(cached)
 
     try:
+        freshness_cutoff = datetime.utcnow() - timedelta(hours=24)
         # Select only UI fields to avoid loading heavy User.avatar binary blobs.
         reports = (
             db.session.query(
@@ -81,6 +84,7 @@ def get_reports():
                 User.nickname,
             )
             .outerjoin(User, PoolReport.user_id == User.id)
+            .filter(PoolReport.created_at >= freshness_cutoff)
             .order_by(PoolReport.created_at.desc())
             .limit(10)
             .all()

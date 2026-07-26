@@ -100,6 +100,9 @@ class Config:
     CHATBOT_MIN_SCORE = env_float('CHATBOT_MIN_SCORE', 0.45)
     CHATBOT_MAX_CONTEXT_CHARS = env_int('CHATBOT_MAX_CONTEXT_CHARS', 4000)
     CHATBOT_DB_TOOL_MAX_CALLS = env_int('CHATBOT_DB_TOOL_MAX_CALLS', 4)
+    # Per-user chat rate limits (LLM calls cost real money).
+    CHATBOT_BURST_LIMIT_PER_MINUTE = env_int('CHATBOT_BURST_LIMIT_PER_MINUTE', 8)
+    CHATBOT_DAILY_MESSAGE_LIMIT = env_int('CHATBOT_DAILY_MESSAGE_LIMIT', 80)
 
 class DevelopmentConfig(Config):
     DEBUG = True
@@ -116,6 +119,9 @@ class TestingConfig(Config):
     TESTING = True
     SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
     WTF_CSRF_ENABLED = False
+    # Rate limits are exercised explicitly in dedicated tests.
+    CHATBOT_BURST_LIMIT_PER_MINUTE = 0
+    CHATBOT_DAILY_MESSAGE_LIMIT = 0
 
 config = {
     'development': DevelopmentConfig,
