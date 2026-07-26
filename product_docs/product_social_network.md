@@ -243,3 +243,8 @@
 - **状态码语义**：
   - 页面流不强制使用 `401/403`，以用户可见跳转为主。
   - API 场景按接口约定返回 `200/400/403` 等。
+
+## Feed Keyword Search
+* Search box at the top of the community feed matches keywords in post titles and bodies (case-insensitive, `%`/`_` wildcards escaped, max 80 chars).
+* Combines with category tabs and pagination; pinned-first ordering is suspended while searching (pure recency instead).
+* Soft-deleted posts never appear in results.

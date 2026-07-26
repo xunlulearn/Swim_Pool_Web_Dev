@@ -494,7 +494,8 @@ def test_graph_unknown_answer_returns_three_related_faq_questions(monkeypatch):
         for original, localized in graph_module.QUICK_QUESTION_ZH_MAP.items()
         if original in faq_questions
     }
-    assert result["answer"] == graph_module.DEFAULT_UNKNOWN_REPLY_EN
+    # Chinese question now receives the Chinese unknown reply directly.
+    assert result["answer"] == graph_module.DEFAULT_UNKNOWN_REPLY_ZH
     assert len(result["quick_questions"]) == 3
     assert all(
         item in faq_questions or item in faq_questions_zh for item in result["quick_questions"]
@@ -659,7 +660,7 @@ def test_graph_database_path_uses_tool_pipeline(monkeypatch):
     monkeypatch.setattr(
         graph_module,
         "_run_database_tool_use",
-        lambda question, llm, max_tool_calls: (
+        lambda question, llm, max_tool_calls, reply_language="en": (
             f"DB summary for: {question}",
             ["app://community/post/100"],
         ),
@@ -682,12 +683,10 @@ def test_graph_database_path_uses_tool_pipeline(monkeypatch):
     assert result["sources"] == ["app://community/post/100"]
 
 
-def test_graph_translates_non_english_question_before_database_query(monkeypatch):
-    monkeypatch.setattr(
-        graph_module,
-        "_translate_to_english",
-        lambda question, intent_llm, qa_llm: "list latest manual reports",
-    )
+def test_graph_database_query_keeps_original_language_and_reply_language(monkeypatch):
+    """Community content is bilingual, so DB tool-use must see the original
+    question (an English translation would miss Chinese posts) and must be
+    asked to answer in the user's language."""
     monkeypatch.setattr(
         graph_module,
         "_translate_from_english",
@@ -696,9 +695,10 @@ def test_graph_translates_non_english_question_before_database_query(monkeypatch
 
     captured = {}
 
-    def _fake_run_database_tool_use(question, llm, max_tool_calls):
+    def _fake_run_database_tool_use(question, llm, max_tool_calls, reply_language="en"):
         captured["question"] = question
-        return "Database answer", []
+        captured["reply_language"] = reply_language
+        return "\u6570\u636e\u5e93\u67e5\u8be2\u7ed3\u679c", []
 
     monkeypatch.setattr(graph_module, "_run_database_tool_use", _fake_run_database_tool_use)
 
@@ -715,8 +715,9 @@ def test_graph_translates_non_english_question_before_database_query(monkeypatch
     )
 
     result = rag_app.invoke({"question": "\u5217\u51fa\u6700\u65b0\u7684\u624b\u52a8\u4e0a\u62a5"})
-    assert captured["question"] == "list latest manual reports"
-    assert result["answer"] == "Database answer"
+    assert captured["question"] == "\u5217\u51fa\u6700\u65b0\u7684\u624b\u52a8\u4e0a\u62a5"
+    assert captured["reply_language"] == "zh"
+    assert result["answer"] == "\u6570\u636e\u5e93\u67e5\u8be2\u7ed3\u679c"
 
 
 def test_translate_quick_questions_uses_deterministic_zh_mapping():

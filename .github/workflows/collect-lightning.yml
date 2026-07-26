@@ -1,0 +1,32 @@
+name: Collect Lightning Snapshots
+
+# The in-process lightning collector thread does not survive on Vercel
+# serverless (instances freeze between requests), so the 12-hour lightning
+# trend chart develops data gaps whenever nobody is browsing the site.
+# This workflow keeps the persisted snapshot store fed around the clock.
+#
+# Required repository secrets:
+#   LIGHTNING_CRON_URL  e.g. https://www.ntupool.org/api/cron/collect-lightning
+#   CRON_SECRET         same value as the Vercel CRON_SECRET env var
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call lightning collection cron endpoint
+        env:
+          LIGHTNING_CRON_URL: ${{ secrets.LIGHTNING_CRON_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          test -n "$LIGHTNING_CRON_URL"
+          test -n "$CRON_SECRET"
+          curl --fail --show-error --silent \
+            --max-time 25 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$LIGHTNING_CRON_URL"

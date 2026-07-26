@@ -215,3 +215,12 @@ If `SupabaseVectorStore` methods fail due SDK version mismatch, fallback to dire
 - Cross-session multi-turn memory for answer generation.
 - Fine-tuned domain intent model training (current implementation uses external model + local heuristics).
 
+## 11. Performance & Language Flow (2026-07 update)
+
+- **Heuristic-first routing**: deterministic bilingual rules classify most messages without any intent-model call; the external intent model is consulted only for genuinely ambiguous input, with a 10s timeout and 1 retry so a slow free-tier model can never stall the chat.
+- **No upfront translation**: the QA model answers natively in the user's language (a per-request "Reply in ..." instruction). The old zh->en->answer->zh double-translation pipeline is removed from the hot path.
+- **Lazy retrieval translation**: for non-English questions, the query is translated to English only when the first vector search returns nothing above threshold, then both result sets are merged.
+- **Database path**: tool-use receives the original-language question (community content is bilingual; translated keywords would miss Chinese posts) and summarizes in the user's language.
+- **Static answers localized**: capability/unknown/fallback replies have Chinese and English variants chosen by input language; a localize safety net translates only if the model ignores the language instruction.
+- **Rate limits**: per-user burst limit (default 8 messages/min, in-memory) and daily cap (default 80/day via the Supabase conversation log, fail-open). Both configurable: `CHATBOT_BURST_LIMIT_PER_MINUTE`, `CHATBOT_DAILY_MESSAGE_LIMIT`. Exceeding returns HTTP 429 with a bilingual message.
+- Typical LLM round-trips per message: was 4-8 (translate-in via free 1.2B thinking model, intent, QA, translate-out, per-question quick-question translation), now 1 for most questions (QA only), 2 when lazy retrieval translation or the intent tie-breaker fires.

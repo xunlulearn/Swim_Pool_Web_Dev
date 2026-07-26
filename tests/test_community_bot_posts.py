@@ -8,7 +8,16 @@ from app.models.user import User
 
 
 def _contains_cjk(value):
-    return any('\u4e00' <= char <= '\u9fff' for char in value)
+    return any('一' <= char <= '鿿' for char in value)
+
+
+# 2026-06-11 is a Thursday (weekday schedule 07:00-21:30 SGT).
+# 10:30 UTC == 18:30 SGT, comfortably inside the buffered window.
+IN_WINDOW_NOW = datetime(2026, 6, 11, 10, 30, 0)
+# 19:00 UTC == 03:00 SGT next day: middle of the night.
+NIGHT_NOW = datetime(2026, 6, 11, 19, 0, 0)
+# 23:10 UTC (prev day) == 07:10 SGT: open, but within the 30-min edge buffer.
+EDGE_NOW = datetime(2026, 6, 10, 23, 10, 0)
 
 
 @pytest.fixture
@@ -27,6 +36,13 @@ def app():
 @pytest.fixture
 def client(app):
     return app.test_client()
+
+
+def _force_act(monkeypatch):
+    """Make every probability gate fire deterministically."""
+    from app.services import community_bot
+
+    monkeypatch.setattr(community_bot.random, 'random', lambda: 0.0)
 
 
 def test_ensure_bot_accounts_creates_50_enabled_bot_users(app):
@@ -63,6 +79,17 @@ def test_ensure_bot_accounts_creates_50_enabled_bot_users(app):
         assert all(_contains_cjk(account.user.nickname) for account in chinese_accounts)
 
 
+def test_ensure_bot_accounts_skips_resync_when_seeded(app):
+    from app.services.community_bot import ensure_bot_accounts
+
+    with app.app_context():
+        first = ensure_bot_accounts()
+        second = ensure_bot_accounts()
+
+        assert first['created'] == 50
+        assert second == {'created': 0, 'updated': 0, 'skipped': True}
+
+
 def test_chinese_bot_accounts_use_chinese_post_templates(app):
     from app.models.bot import BotAccount
     from app.services.community_bot import CHINESE_PERSONA_KEYS, _build_post, ensure_bot_accounts
@@ -71,26 +98,26 @@ def test_chinese_bot_accounts_use_chinese_post_templates(app):
         ensure_bot_accounts()
 
         for account in BotAccount.query.filter(BotAccount.persona_key.in_(CHINESE_PERSONA_KEYS)).all():
-            title, body = _build_post(account)
+            title, body = _build_post(account, now=IN_WINDOW_NOW)
 
             assert _contains_cjk(title)
             assert _contains_cjk(body)
 
 
-def test_community_post_tick_creates_post_and_activity_log(app):
+def test_community_post_tick_creates_post_and_activity_log(app, monkeypatch):
     from app.models.bot import BotAccount, BotActivityLog, BotDailyPostPlan
     from app.services.community_bot import ensure_bot_accounts, run_community_post_tick
 
-    now = datetime(2026, 6, 11, 10, 30, 0)
+    _force_act(monkeypatch)
 
     with app.app_context():
         ensure_bot_accounts()
         db.session.add(BotDailyPostPlan(day='2026-06-11', target_count=2))
         for account in BotAccount.query.all():
-            account.next_run_at = now - timedelta(minutes=5)
+            account.next_run_at = IN_WINDOW_NOW - timedelta(minutes=5)
         db.session.commit()
 
-        result = run_community_post_tick(now=now)
+        result = run_community_post_tick(now=IN_WINDOW_NOW)
 
         assert result['ok'] is True
         assert result['action'] == 'posted'
@@ -98,17 +125,75 @@ def test_community_post_tick_creates_post_and_activity_log(app):
         post = Post.query.first()
         assert post.author.is_bot is True
         assert post.category in {'general', 'squad', 'lostfound', 'tutorial'}
-        assert BotActivityLog.query.filter_by(status='posted', post_id=post.id).count() == 1
+        assert BotActivityLog.query.filter_by(status='posted', post_id=post.id).count() >= 1
+        # Post timestamps are scattered off the exact tick boundary but
+        # never into the future.
+        assert post.created_at <= IN_WINDOW_NOW
+        assert post.created_at >= IN_WINDOW_NOW - timedelta(minutes=20)
 
 
-def test_community_post_tick_records_homepage_pool_status_report(app, monkeypatch):
-    from app.models.bot import BotAccount, BotDailyPostPlan
+def test_community_post_tick_skips_outside_operating_hours(app, monkeypatch):
+    from app.models.report import PoolReport
+    from app.services.community_bot import run_community_post_tick
+
+    _force_act(monkeypatch)
+
+    with app.app_context():
+        result = run_community_post_tick(now=NIGHT_NOW)
+
+        assert result['ok'] is True
+        assert result['action'] == 'skipped'
+        assert result['reason'] == 'outside_operating_hours'
+        assert Post.query.count() == 0
+        assert PoolReport.query.count() == 0
+
+
+def test_community_post_tick_skips_inside_opening_edge_buffer(app, monkeypatch):
+    from app.services.community_bot import run_community_post_tick
+
+    _force_act(monkeypatch)
+
+    with app.app_context():
+        result = run_community_post_tick(now=EDGE_NOW)
+
+        assert result['action'] == 'skipped'
+        assert result['reason'] == 'outside_operating_hours'
+        assert Post.query.count() == 0
+
+
+def test_community_post_tick_randomized_wait_skips_without_burning_quota(app, monkeypatch):
+    from app.models.bot import BotDailyPostPlan
+    from app.services import community_bot
+    from app.services.community_bot import ensure_bot_accounts, run_community_post_tick
+
+    # Gate never fires this tick.
+    monkeypatch.setattr(community_bot.random, 'random', lambda: 0.999999)
+
+    with app.app_context():
+        ensure_bot_accounts()
+        db.session.add(BotDailyPostPlan(
+            day='2026-06-11',
+            target_count=2,
+            report_target_count=2,
+            comment_target_count=2,
+            like_target_count=2,
+        ))
+        db.session.commit()
+
+        result = run_community_post_tick(now=IN_WINDOW_NOW)
+
+        assert result['action'] == 'skipped'
+        assert result['reason'] == 'randomized_wait'
+        assert Post.query.count() == 0
+
+
+def test_bot_report_is_decoupled_from_posting(app, monkeypatch):
+    from app.models.bot import BotDailyPostPlan
     from app.models.report import PoolReport
     from app.services.community_bot import ensure_bot_accounts, run_community_post_tick
     from app.services.weather_engine import PoolStatus, weather_engine
 
-    now = datetime(2026, 6, 11, 10, 30, 0)
-
+    _force_act(monkeypatch)
     monkeypatch.setattr(
         weather_engine,
         "get_overall_status",
@@ -117,37 +202,215 @@ def test_community_post_tick_records_homepage_pool_status_report(app, monkeypatc
 
     with app.app_context():
         ensure_bot_accounts()
-        db.session.add(BotDailyPostPlan(day='2026-06-11', target_count=2))
-        for account in BotAccount.query.all():
-            account.next_run_at = now - timedelta(minutes=5)
+        db.session.add(BotDailyPostPlan(
+            day='2026-06-11',
+            target_count=0,  # no posts today
+            report_target_count=3,
+            comment_target_count=0,
+            like_target_count=0,
+        ))
         db.session.commit()
 
-        result = run_community_post_tick(now=now)
+        result = run_community_post_tick(now=IN_WINDOW_NOW)
 
-        assert result['ok'] is True
-        assert result['action'] == 'posted'
-
-        post = Post.query.first()
+        # No post was made, yet a report still went out.
+        assert result['action'] == 'skipped'
+        assert result['report']['action'] == 'posted'
         report = PoolReport.query.one()
-        assert report.user_id == post.author_id
+        reporter = db.session.get(User, report.user_id)
+        assert reporter.is_bot is True
         assert report.status == "Open"
-        assert report.created_at == now
+        assert report.created_at <= IN_WINDOW_NOW
 
 
-def test_first_community_post_tick_seeds_accounts_and_posts(app):
+def test_bot_report_uses_closed_status_when_engine_red(app, monkeypatch):
+    from app.models.bot import BotDailyPostPlan
+    from app.models.report import PoolReport
+    from app.services.community_bot import ensure_bot_accounts, run_community_post_tick
+    from app.services.weather_engine import PoolStatus, weather_engine
+
+    _force_act(monkeypatch)
+    monkeypatch.setattr(
+        weather_engine,
+        "get_overall_status",
+        lambda: (PoolStatus.RED, "Pool Closed due to Lightning Alert", {"reason": "lightning"}),
+    )
+
+    with app.app_context():
+        ensure_bot_accounts()
+        db.session.add(BotDailyPostPlan(
+            day='2026-06-11',
+            target_count=0,
+            report_target_count=1,
+            comment_target_count=0,
+            like_target_count=0,
+        ))
+        db.session.commit()
+
+        run_community_post_tick(now=IN_WINDOW_NOW)
+
+        assert PoolReport.query.one().status == "Closed"
+
+
+def test_build_post_matches_time_bucket(app):
+    from app.models.bot import BotAccount
+    from app.services import community_bot
+    from app.services.community_bot import _build_post, ensure_bot_accounts
+
+    # 01:00 UTC == 09:00 SGT -> morning bucket.
+    morning_now = datetime(2026, 6, 11, 1, 0, 0)
+
+    with app.app_context():
+        ensure_bot_accounts()
+        account = BotAccount.query.filter_by(persona_key='daniel_src').one()  # zh general
+
+        zh_general = community_bot.CHINESE_POST_TEMPLATES['general']
+        morning_titles = {
+            title for title, _ in (
+                zh_general[community_bot.BUCKET_ANY] + zh_general[community_bot.BUCKET_MORNING]
+            )
+        }
+        evening_titles = {title for title, _ in zh_general[community_bot.BUCKET_EVENING]}
+
+        for _ in range(20):
+            title, _body = _build_post(account, now=morning_now)
+            assert title in morning_titles
+            assert title not in evening_titles
+
+
+def test_build_post_avoids_recently_used_titles(app):
+    from app.models.bot import BotAccount
+    from app.services.community_bot import _build_post, ensure_bot_accounts
+
+    with app.app_context():
+        ensure_bot_accounts()
+        account = BotAccount.query.filter_by(persona_key='daniel_src').one()
+
+        seen = set()
+        # Simulate several days of posting; each chosen title is persisted
+        # as a bot post, so the next pick must avoid it while options last.
+        for _ in range(3):
+            title, body = _build_post(account, now=IN_WINDOW_NOW)
+            assert title not in seen
+            seen.add(title)
+            db.session.add(Post(
+                title=title,
+                body=body,
+                category='general',
+                author_id=account.user_id,
+                created_at=IN_WINDOW_NOW,
+                updated_at=IN_WINDOW_NOW,
+            ))
+            db.session.commit()
+
+
+def test_bot_comments_prioritize_unanswered_human_posts(app, monkeypatch):
+    from app.models.bot import BotDailyPostPlan
+    from app.models.content import Comment
+    from app.services.community_bot import ensure_bot_accounts, run_community_post_tick
+
+    _force_act(monkeypatch)
+
+    with app.app_context():
+        ensure_bot_accounts()
+        human = User(
+            email='human@example.com', username='human_user',
+            is_verified=True, nickname='Human',
+        )
+        db.session.add(human)
+        db.session.flush()
+        human_post = Post(
+            title='有人知道储物柜怎么租吗？',
+            body='第一次去 SRC，想问一下储物柜是投币的还是要去前台登记？',
+            category='general',
+            author_id=human.id,
+            created_at=IN_WINDOW_NOW - timedelta(hours=3),
+            updated_at=IN_WINDOW_NOW - timedelta(hours=3),
+        )
+        db.session.add(human_post)
+        db.session.add(BotDailyPostPlan(
+            day='2026-06-11',
+            target_count=0,
+            report_target_count=0,
+            comment_target_count=2,
+            like_target_count=0,
+        ))
+        db.session.commit()
+
+        result = run_community_post_tick(now=IN_WINDOW_NOW)
+
+        assert result['comment']['action'] == 'posted'
+        assert result['comment']['post_id'] == human_post.id
+        comment = Comment.query.one()
+        commenter = db.session.get(User, comment.author_id)
+        assert commenter.is_bot is True
+        # Chinese post gets a Chinese-persona reply.
+        assert _contains_cjk(comment.body)
+        assert comment.author_id != human_post.author_id
+
+
+def test_bot_likes_prefer_human_posts_and_never_duplicate(app, monkeypatch):
+    from app.models.bot import BotDailyPostPlan
+    from app.models.interaction import Like
+    from app.services.community_bot import ensure_bot_accounts, run_community_post_tick
+
+    _force_act(monkeypatch)
+
+    with app.app_context():
+        ensure_bot_accounts()
+        human = User(
+            email='human@example.com', username='human_user',
+            is_verified=True, nickname='Human',
+        )
+        db.session.add(human)
+        db.session.flush()
+        human_post = Post(
+            title='First swim done!',
+            body='Finally managed 20 laps without stopping. Feels great.',
+            category='general',
+            author_id=human.id,
+            created_at=IN_WINDOW_NOW - timedelta(hours=2),
+            updated_at=IN_WINDOW_NOW - timedelta(hours=2),
+        )
+        db.session.add(human_post)
+        db.session.add(BotDailyPostPlan(
+            day='2026-06-11',
+            target_count=0,
+            report_target_count=0,
+            comment_target_count=0,
+            like_target_count=5,
+        ))
+        db.session.commit()
+
+        first = run_community_post_tick(now=IN_WINDOW_NOW)
+        second = run_community_post_tick(now=IN_WINDOW_NOW + timedelta(minutes=30))
+
+        assert first['like']['action'] == 'posted'
+        assert first['like']['post_id'] == human_post.id
+        assert second['like']['action'] == 'posted'
+        likes = Like.query.all()
+        # No duplicate (user, post) pair.
+        assert len({(like.user_id, like.post_id) for like in likes}) == len(likes)
+        likers = {db.session.get(User, like.user_id).is_bot for like in likes}
+        assert likers == {True}
+
+
+def test_first_community_post_tick_seeds_accounts_and_posts(app, monkeypatch):
     from app.models.bot import BotActivityLog
     from app.services.community_bot import run_community_post_tick
 
-    now = datetime(2026, 6, 11, 10, 30, 0)
+    _force_act(monkeypatch)
 
     with app.app_context():
-        result = run_community_post_tick(now=now)
+        result = run_community_post_tick(now=IN_WINDOW_NOW)
 
         assert result['ok'] is True
         assert result['action'] == 'posted'
         assert User.query.filter_by(is_bot=True).count() == 50
         assert Post.query.count() == 1
-        assert BotActivityLog.query.filter_by(status='posted').count() == 1
+        assert BotActivityLog.query.filter_by(
+            action_type='create_post', status='posted'
+        ).count() == 1
 
 
 def test_community_post_cron_requires_secret(client):

@@ -14,5 +14,5 @@
         1.  **Status**: Open or Closed.
         2.  **Publisher**: User `username`.
         3.  **Timestamp**: Relative time (for example, "Just now", "2 mins ago", "1 hour ago").
-* **Validity Logic**: Reports older than 2 hours should be visually dimmed or hidden to prevent confusion.
+* **Validity Logic**: Reports older than 2 hours are visually dimmed; reports older than 24 hours are excluded from the API response entirely so stale (e.g. overnight) reports never read as the current situation.
 * **Efficiency Note**: Backend query is column-scoped (`pool_reports` fields + `users.username`) to reduce database egress under 60-second polling.

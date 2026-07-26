@@ -12,6 +12,8 @@ from flask import current_app, has_app_context
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only
 
+from app.services import operating_hours
+
 # Legacy toggle kept for backward compatibility; runtime selection uses
 # `USE_SAMPLE_WEATHER_DATA` in app config.
 USE_SAMPLE_DATA = False
@@ -79,23 +81,10 @@ class WeatherEngine:
         self._lightning_snapshot_cache_lock = Lock()
         self._lightning_snapshot_refresh_lock = Lock()
 
-        # 2026 Singapore public holidays (YYYY-MM-DD).
-        self.PUBLIC_HOLIDAYS_2026 = {
-            "2026-01-01",  # New Year's Day
-            "2026-02-17",
-            "2026-02-18",  # Chinese New Year
-            "2026-03-21",  # Hari Raya Puasa
-            "2026-04-03",  # Good Friday
-            "2026-05-01",  # Labour Day
-            "2026-05-27",  # Hari Raya Haji
-            "2026-05-31",
-            "2026-06-01",  # Vesak Day + observed
-            "2026-08-09",
-            "2026-08-10",  # National Day + observed
-            "2026-11-08",
-            "2026-11-09",  # Deepavali + observed
-            "2026-12-25",  # Christmas
-        }
+        # Singapore public holidays (shared with operating_hours module).
+        # Kept as an attribute for backward compatibility; the authoritative
+        # list (2026 + 2027) lives in app.services.operating_hours.
+        self.PUBLIC_HOLIDAYS_2026 = operating_hours.PUBLIC_HOLIDAYS
 
     def _get_status_cache_ttl_seconds(self):
         if has_app_context():
@@ -260,41 +249,31 @@ class WeatherEngine:
         return True
 
     def _is_operating_hours(self):
-        """Return whether the pool is within opening hours (Singapore time)."""
-        sgt_now = datetime.now(timezone(timedelta(hours=8)))
+        """Return whether the pool is within opening hours (Singapore time).
 
-        date_str = sgt_now.strftime("%Y-%m-%d")
-        is_weekend = sgt_now.weekday() >= 5  # 5=Sat, 6=Sun
-        is_holiday = date_str in self.PUBLIC_HOLIDAYS_2026
-
-        current_time = sgt_now.time()
-
-        if is_weekend or is_holiday:
-            start_time = datetime.strptime("08:00", "%H:%M").time()
-            end_time = datetime.strptime("20:00", "%H:%M").time()
-            day_type = "Weekend/Public Holiday"
-        else:
-            start_time = datetime.strptime("07:00", "%H:%M").time()
-            end_time = datetime.strptime("21:30", "%H:%M").time()
-            day_type = "Weekday"
-
-        if start_time <= current_time <= end_time:
-            return True, None
-
-        msg = (
-            f"Pool Closed - Outside Operating Hours "
-            f"({day_type} {start_time.strftime('%H:%M')}-{end_time.strftime('%H:%M')})"
-        )
-        return False, msg
+        Delegates to the shared operating_hours module so the weather engine
+        and the community bot always agree on the schedule.
+        """
+        return operating_hours.is_within_operating_hours()
 
     def _get_community_consensus(self):
-        """Return community consensus status ('Open' or 'Closed') when strong enough."""
+        """Return community consensus status ('Open' or 'Closed') when strong enough.
+
+        Bot accounts are excluded: their reports mirror this engine's own
+        output, so counting them would let the engine "confirm" itself and
+        distort the human consensus signal.
+        """
         try:
             from app.models.report import PoolReport
+            from app.models.user import User
 
             cutoff_time = datetime.utcnow() - timedelta(minutes=30)
             recent_reports = (
-                PoolReport.query.filter(PoolReport.created_at >= cutoff_time)
+                PoolReport.query.join(User, PoolReport.user_id == User.id)
+                .filter(
+                    PoolReport.created_at >= cutoff_time,
+                    User.is_bot.isnot(True),
+                )
                 .order_by(PoolReport.created_at.desc())
                 .limit(10)
                 .all()

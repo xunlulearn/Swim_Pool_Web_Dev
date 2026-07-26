@@ -18,34 +18,78 @@
         {% endif %}
     </div>
 
+    <!-- Search Bar -->
+    <form action="{{ url_for('social.feed') }}" method="get" class="relative">
+        <input type="hidden" name="category" value="{{ current_category }}">
+        <label for="feed-search" class="sr-only">Search posts</label>
+        <svg class="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"></path>
+        </svg>
+        <input
+            id="feed-search"
+            type="search"
+            name="q"
+            value="{{ search_query or '' }}"
+            maxlength="80"
+            placeholder="Search posts... / 搜索帖子"
+            class="w-full h-11 rounded-xl border border-gray-200 bg-white pl-10 pr-24 text-sm text-slate-700 placeholder-gray-400 focus:border-ntu-blue focus:outline-none focus:ring-2 focus:ring-ntu-blue/20"
+        >
+        <div class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+            {% if search_query %}
+            <a href="{{ url_for('social.feed', category=current_category) }}"
+               class="h-8 px-2 flex items-center rounded-lg text-xs text-gray-400 hover:text-slate-600 hover:bg-gray-100 transition"
+               aria-label="Clear search">
+                Clear
+            </a>
+            {% endif %}
+            <button type="submit"
+                    class="h-8 px-3 rounded-lg bg-ntu-blue text-white text-xs font-medium hover:bg-blue-800 transition">
+                Search
+            </button>
+        </div>
+    </form>
+
     <!-- Category Filter Tabs -->
     <div class="flex gap-2 overflow-x-auto pb-2">
-        <a href="{{ url_for('social.feed', category='all') }}" 
+        <a href="{{ url_for('social.feed', category='all', q=search_query or none) }}"
            class="px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition
                   {% if current_category == 'all' %}bg-ntu-blue text-white{% else %}bg-white text-slate-600 hover:bg-slate-100{% endif %}">
             All
         </a>
-        <a href="{{ url_for('social.feed', category='general') }}" 
+        <a href="{{ url_for('social.feed', category='general', q=search_query or none) }}"
            class="px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition
                   {% if current_category == 'general' %}bg-ntu-blue text-white{% else %}bg-white text-slate-600 hover:bg-slate-100{% endif %}">
             💬 General
         </a>
-        <a href="{{ url_for('social.feed', category='squad') }}" 
+        <a href="{{ url_for('social.feed', category='squad', q=search_query or none) }}"
            class="px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition
                   {% if current_category == 'squad' %}bg-ntu-blue text-white{% else %}bg-white text-slate-600 hover:bg-slate-100{% endif %}">
             🏊 Find Buddy
         </a>
-        <a href="{{ url_for('social.feed', category='lostfound') }}" 
+        <a href="{{ url_for('social.feed', category='lostfound', q=search_query or none) }}"
            class="px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition
                   {% if current_category == 'lostfound' %}bg-ntu-blue text-white{% else %}bg-white text-slate-600 hover:bg-slate-100{% endif %}">
             🔍 Lost & Found
         </a>
-        <a href="{{ url_for('social.feed', category='tutorial') }}" 
+        <a href="{{ url_for('social.feed', category='tutorial', q=search_query or none) }}"
            class="px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition
                   {% if current_category == 'tutorial' %}bg-ntu-blue text-white{% else %}bg-white text-slate-600 hover:bg-slate-100{% endif %}">
             📚 Tutorials
         </a>
     </div>
+
+    <!-- Search Result Summary -->
+    {% if search_query %}
+    <div class="flex items-center justify-between text-sm text-slate-500">
+        <span>
+            {{ pagination.total }} result{{ 's' if pagination.total != 1 else '' }} for
+            "<span class="font-semibold text-slate-700">{{ search_query }}</span>"
+        </span>
+        <a href="{{ url_for('social.feed', category=current_category) }}" class="text-ntu-blue hover:underline">
+            Back to all posts
+        </a>
+    </div>
+    {% endif %}
 
     <!-- Guest Notice -->
     {% if not current_user.is_authenticated %}
@@ -154,7 +198,11 @@
             <svg class="w-12 h-12 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"></path>
             </svg>
+            {% if search_query %}
+            <p class="text-gray-400">No posts match "{{ search_query }}". Try a different keyword.</p>
+            {% else %}
             <p class="text-gray-400">No posts yet. Be the first to share!</p>
+            {% endif %}
         </div>
         {% endfor %}
     </div>
@@ -163,18 +211,19 @@
     {% if pagination and pagination.pages > 1 %}
     <div class="flex flex-wrap justify-center items-center gap-2 mt-6">
         {% if pagination.has_prev %}
-        <a href="{{ url_for('social.feed', category=current_category, page=pagination.prev_num) }}" 
+        <a href="{{ url_for('social.feed', category=current_category, q=search_query or none, page=pagination.prev_num) }}"
            class="px-4 py-2 bg-white rounded-lg border border-gray-200 hover:bg-gray-50 transition text-sm">
             ← Prev
         </a>
         {% endif %}
-        
+
         <span class="px-4 py-2 text-sm text-gray-600">
             Page {{ pagination.page }} / {{ pagination.pages }}
         </span>
 
         <form action="{{ url_for('social.feed') }}" method="get" class="flex items-center gap-2">
             <input type="hidden" name="category" value="{{ current_category }}">
+            {% if search_query %}<input type="hidden" name="q" value="{{ search_query }}">{% endif %}
             <label for="feed-page-jump" class="sr-only">Jump to page</label>
             <input
                 id="feed-page-jump"
@@ -194,7 +243,7 @@
         </form>
         
         {% if pagination.has_next %}
-        <a href="{{ url_for('social.feed', category=current_category, page=pagination.next_num) }}" 
+        <a href="{{ url_for('social.feed', category=current_category, q=search_query or none, page=pagination.next_num) }}"
            class="px-4 py-2 bg-white rounded-lg border border-gray-200 hover:bg-gray-50 transition text-sm">
             Next →
         </a>

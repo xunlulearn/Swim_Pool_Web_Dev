@@ -72,19 +72,36 @@ def admin_required(f):
 
 # ============== Post List (Community Feed) ==============
 
+MAX_SEARCH_QUERY_LENGTH = 80
+
+
 @social_bp.route('/')
 def feed():
-    """Community feed - post list with pagination"""
+    """Community feed - post list with search, category filter and pagination"""
     category = request.args.get('category', 'all')
     page = request.args.get('page', 1, type=int)
+    search_query = (request.args.get('q') or '').strip()[:MAX_SEARCH_QUERY_LENGTH]
     per_page = 20  # 每页显示20个帖子
-    
+
     # Base query: exclude soft-deleted posts
     query = Post.query.filter_by(is_deleted=False)
-    
+
     # Category filter
     if category != 'all':
         query = query.filter_by(category=category)
+
+    # Keyword search across title and body (case-insensitive).
+    if search_query:
+        escaped = (
+            search_query.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+        )
+        like_pattern = f'%{escaped}%'
+        query = query.filter(
+            or_(
+                Post.title.ilike(like_pattern, escape='\\'),
+                Post.body.ilike(like_pattern, escape='\\'),
+            )
+        )
 
     query = query.options(
         load_only(
@@ -109,10 +126,12 @@ def feed():
         ),
     )
     
-    # Pinned posts first, then by date descending, with pagination
-    pagination = query.order_by(Post.is_pinned.desc(), Post.created_at.desc()).paginate(
-        page=page, per_page=per_page, error_out=False
-    )
+    # Pinned posts first (unless searching), then by date descending.
+    if search_query:
+        ordered = query.order_by(Post.created_at.desc())
+    else:
+        ordered = query.order_by(Post.is_pinned.desc(), Post.created_at.desc())
+    pagination = ordered.paginate(page=page, per_page=per_page, error_out=False)
     posts = pagination.items
 
     post_ids = [post.id for post in posts]
@@ -135,9 +154,10 @@ def feed():
             .all()
         )
     
-    return render_template('social/feed.html', 
-                           posts=posts, 
+    return render_template('social/feed.html',
+                           posts=posts,
                            current_category=category,
+                           search_query=search_query,
                            pagination=pagination,
                            like_counts=like_counts,
                            comment_counts=comment_counts)
@@ -479,7 +499,21 @@ def report_post(post_id):
     if not reason:
         flash('Please enter a reason for reporting.', 'error')
         return redirect(url_for('social.post_detail', post_id=post_id))
-    
+
+    if post.author_id == current_user.id:
+        flash('You cannot report your own post.', 'warning')
+        return redirect(url_for('social.post_detail', post_id=post_id))
+
+    # One report per user per post (same rule as comment reports).
+    existing = ContentReport.query.filter_by(
+        reporter_id=current_user.id,
+        target_type='post',
+        target_id=post_id
+    ).first()
+    if existing:
+        flash('You have already reported this post.', 'info')
+        return redirect(url_for('social.post_detail', post_id=post_id))
+
     report = ContentReport(
         reporter_id=current_user.id,
         target_type='post',
@@ -488,7 +522,7 @@ def report_post(post_id):
     )
     db.session.add(report)
     db.session.commit()
-    
+
     flash('Report submitted. An admin will review it shortly.', 'success')
     return redirect(url_for('social.post_detail', post_id=post_id))
 

@@ -150,6 +150,16 @@ def create_app(config_name=None):
         if 'bot_persona' not in existing_columns:
             statements.append('ALTER TABLE users ADD COLUMN bot_persona VARCHAR(64)')
 
+        plan_columns = {
+            col['name'] for col in inspector.get_columns(BotDailyPostPlan.__tablename__)
+        }
+        for column_name in ('report_target_count', 'comment_target_count', 'like_target_count'):
+            if column_name not in plan_columns:
+                statements.append(
+                    f'ALTER TABLE {BotDailyPostPlan.__tablename__} '
+                    f'ADD COLUMN {column_name} INTEGER'
+                )
+
         for statement in statements:
             db.session.execute(text(statement))
         if statements:

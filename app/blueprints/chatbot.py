@@ -1,5 +1,7 @@
+from collections import deque
 from datetime import datetime, timezone
 from functools import lru_cache
+from threading import Lock
 import json
 import re
 import time
@@ -39,6 +41,89 @@ DEFAULT_UNKNOWN_REPLY = (
 DEFAULT_FEEDBACK_PROMPT = (
     "\u8bf7\u60a8\u5bf9\u6211\u8fdb\u884c\u6ee1\u610f\u5ea6\u8bc4\u5206\uff0c\u5e2e\u52a9\u6211\u4ee5\u540e\u53d8\u5f97\u66f4\u52a0\u806a\u660e\u3002"
 )
+
+
+RATE_LIMIT_ERROR = (
+    "You are sending messages too quickly. Please wait a moment and try again. "
+    "发送得太快啦，请稍等一下再试。"
+)
+DAILY_LIMIT_ERROR = (
+    "You have reached today's chat limit. Please come back tomorrow. "
+    "今天的对话次数已用完，请明天再来。"
+)
+
+_rate_lock = Lock()
+_rate_buckets: dict[int, deque] = {}
+
+
+def _check_burst_limit(user_id: int) -> bool:
+    """Best-effort in-memory sliding window (per serverless instance)."""
+    try:
+        limit = int(current_app.config.get("CHATBOT_BURST_LIMIT_PER_MINUTE") or 8)
+    except (TypeError, ValueError):
+        limit = 8
+    if limit <= 0:
+        return True
+
+    now = time.monotonic()
+    with _rate_lock:
+        bucket = _rate_buckets.setdefault(user_id, deque())
+        while bucket and now - bucket[0] > 60:
+            bucket.popleft()
+        if len(bucket) >= limit:
+            return False
+        bucket.append(now)
+        # Keep the map from growing without bound.
+        if len(_rate_buckets) > 2000:
+            stale = [
+                key for key, values in _rate_buckets.items()
+                if not values or now - values[-1] > 300
+            ]
+            for key in stale:
+                _rate_buckets.pop(key, None)
+    return True
+
+
+def _check_daily_limit(user_id: int) -> bool:
+    """Cap per-user daily messages via the Supabase conversation log.
+
+    Fails open: if the query cannot run (network, missing column), the
+    message is allowed rather than blocking the user.
+    """
+    try:
+        limit = int(current_app.config.get("CHATBOT_DAILY_MESSAGE_LIMIT") or 0)
+    except (TypeError, ValueError):
+        limit = 0
+    if limit <= 0:
+        return True
+
+    try:
+        client = _get_supabase_client()
+        day_start = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        response = (
+            client.table(_get_chat_log_table_name())
+            .select("id", count="exact")
+            .eq("user_id", user_id)
+            .gte("created_at", day_start.isoformat())
+            .limit(1)
+            .execute()
+        )
+        return int(response.count or 0) < limit
+    except Exception:
+        current_app.logger.warning(
+            "Chatbot daily-limit check failed; allowing message.", exc_info=True
+        )
+        return True
+
+
+def _rate_limit_error_response():
+    return jsonify({"error": RATE_LIMIT_ERROR, "rate_limited": True}), 429
+
+
+def _daily_limit_error_response():
+    return jsonify({"error": DAILY_LIMIT_ERROR, "rate_limited": True}), 429
 
 
 @lru_cache(maxsize=1)
@@ -514,6 +599,11 @@ def chat():
         error_text, status_code = validation_error
         return jsonify({"error": error_text}), status_code
 
+    if not _check_burst_limit(current_user.id):
+        return _rate_limit_error_response()
+    if not _check_daily_limit(current_user.id):
+        return _daily_limit_error_response()
+
     payload = request.get_json(silent=True) or {}
     response_payload, error = _build_chat_response_payload(
         message,
@@ -534,6 +624,11 @@ def chat_stream():
     if validation_error is not None:
         error_text, status_code = validation_error
         return jsonify({"error": error_text}), status_code
+
+    if not _check_burst_limit(current_user.id):
+        return _rate_limit_error_response()
+    if not _check_daily_limit(current_user.id):
+        return _daily_limit_error_response()
 
     def generate_stream():
         # Emit a first frame immediately so the client can show active progress.
