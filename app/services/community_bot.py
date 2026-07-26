@@ -19,8 +19,12 @@ Design goals (in order of importance):
    prioritising human posts that received no replies.
 """
 
+import json
 import random
+import re
 from datetime import datetime, timedelta
+
+import requests
 
 from app.extensions import db
 from app.models.bot import BotAccount, BotActivityLog, BotDailyPostPlan
@@ -45,10 +49,21 @@ DAILY_MIN_POSTS = 2
 DAILY_MAX_POSTS = 6
 DAILY_MIN_REPORTS = 3
 DAILY_MAX_REPORTS = 7
+# Comments track the feed's first page like a browsing human would;
+# volume stays proportional to the 2-6 posts/day cadence.
 DAILY_MIN_COMMENTS = 2
-DAILY_MAX_COMMENTS = 5
+DAILY_MAX_COMMENTS = 4
 DAILY_MIN_LIKES = 4
 DAILY_MAX_LIKES = 10
+
+# LLM content generation (anchored on the static templates, with automatic
+# fallback to the template itself on any failure). Kept deliberately cheap:
+# a short bounded call, at most one per scheduler tick.
+LLM_TIMEOUT_SECONDS = 8.0
+MAX_LLM_CALLS_PER_TICK = 1
+# Comment targets come from the community feed's first page.
+FEED_FIRST_PAGE_SIZE = 20
+COMMENT_TARGET_MAX_AGE = timedelta(days=14)
 
 ACTION_CREATE_POST = 'create_post'
 ACTION_POOL_REPORT = 'pool_report'
@@ -487,6 +502,205 @@ COMMENT_TEMPLATES = {
 }
 
 
+POST_VARIANT_SYSTEM_PROMPT = (
+    "You write short, casual campus forum posts for the NTU swimming pool "
+    "community site. Rewrite the anchor post into ONE fresh variation. Keep "
+    "the same topic, intent, tone and time-of-day feel. Sound like a real "
+    "student, not marketing. Never invent concrete facts (no prices, names, "
+    "event times, or claims about current pool conditions). Title must stay "
+    "short; body is 1-3 short sentences. Write in {language}. "
+    'Return JSON only: {{"title":"...","body":"..."}}'
+)
+
+COMMENT_SYSTEM_PROMPT = (
+    "You write ONE short, casual reply comment on a campus swimming-pool "
+    "forum post. React to the post's actual content like a friendly student. "
+    "1-2 short sentences. Never state current pool conditions as fact, no "
+    "URLs, at most one emoji. Match the tone of the style examples. Write in "
+    '{language}. Return JSON only: {{"comment":"..."}}'
+)
+
+LANGUAGE_NAMES = {'zh': 'Simplified Chinese', 'en': 'English'}
+
+
+def _bot_llm_settings():
+    """Resolve LLM settings from app config (or env when no app context)."""
+    try:
+        from flask import current_app, has_app_context
+
+        if has_app_context():
+            cfg = current_app.config
+            return {
+                'enabled': bool(cfg.get('COMMUNITY_BOT_LLM_CONTENT', True)),
+                'api_key': (cfg.get('OPENAI_API_KEY') or '').strip(),
+                'base_url': (cfg.get('OPENAI_BASE_URL') or '').strip()
+                or 'https://api.openai.com/v1',
+                'model': (cfg.get('OPENAI_CHAT_MODEL') or '').strip() or 'gpt-4o-mini',
+            }
+    except Exception:
+        pass
+
+    import os
+
+    return {
+        'enabled': (os.environ.get('COMMUNITY_BOT_LLM_CONTENT') or 'true').lower()
+        in {'true', '1', 'yes', 'on'},
+        'api_key': (os.environ.get('OPENAI_API_KEY') or '').strip(),
+        'base_url': (os.environ.get('OPENAI_BASE_URL') or '').strip()
+        or 'https://api.openai.com/v1',
+        'model': (os.environ.get('OPENAI_CHAT_MODEL') or '').strip() or 'gpt-4o-mini',
+    }
+
+
+def _extract_json_dict(raw_text):
+    text = (raw_text or '').strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+    match = re.search(r'\{.*\}', text, re.DOTALL)
+    if not match:
+        return None
+    try:
+        parsed = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _llm_chat_json(system_prompt, user_prompt, *, tick_state=None, max_tokens=280):
+    """One bounded chat-completion call returning a parsed JSON dict.
+
+    Returns None on ANY problem (disabled, no key, per-tick budget spent,
+    timeout, HTTP error, unparseable output) so callers can fall back to the
+    static templates. Never raises.
+    """
+    settings = _bot_llm_settings()
+    if not settings['enabled'] or not settings['api_key']:
+        return None
+    if tick_state is not None:
+        if tick_state.get('llm_calls', 0) >= MAX_LLM_CALLS_PER_TICK:
+            return None
+        tick_state['llm_calls'] = tick_state.get('llm_calls', 0) + 1
+
+    try:
+        response = requests.post(
+            f"{settings['base_url'].rstrip('/')}/chat/completions",
+            headers={'Authorization': f"Bearer {settings['api_key']}"},
+            json={
+                'model': settings['model'],
+                'temperature': 0.9,
+                'max_tokens': max_tokens,
+                'messages': [
+                    {'role': 'system', 'content': system_prompt},
+                    {'role': 'user', 'content': user_prompt},
+                ],
+            },
+            timeout=LLM_TIMEOUT_SECONDS,
+        )
+        if response.status_code != 200:
+            return None
+        payload = response.json()
+        content = (
+            (payload.get('choices') or [{}])[0].get('message', {}).get('content', '')
+        )
+        return _extract_json_dict(content)
+    except Exception:
+        return None
+
+
+def _text_language_matches(text, language):
+    has_cjk = _contains_cjk(text)
+    return has_cjk if language == 'zh' else not has_cjk
+
+
+# Words that would read as planning for a part of the day that has already
+# passed. Asymmetric on purpose: a morning post may plan for tonight (humans
+# plan ahead), but an evening post must not "plan" for this morning.
+_MORNING_WORDS = ('早上', '早场', '今早', '上午', '晨游', 'morning', 'before noon')
+_MIDDAY_WORDS = ('中午', '午休', '午间', 'lunch', 'noon', 'midday')
+
+
+def _variant_conflicts_with_bucket(text, bucket):
+    lowered = (text or '').lower()
+    if bucket == BUCKET_EVENING:
+        return any(word in lowered for word in _MORNING_WORDS + _MIDDAY_WORDS)
+    if bucket == BUCKET_MIDDAY:
+        return any(word in lowered for word in _MORNING_WORDS)
+    return False
+
+
+def _generate_post_variant(account, anchor_title, anchor_body, bucket, recent_titles,
+                           tick_state=None):
+    """LLM-rewrite of a template anchor; None means 'use the anchor as-is'."""
+    language = _bot_language(account)
+    avoid = [title for title in list(recent_titles)[:8]]
+    user_prompt = (
+        f"Anchor post (category={account.archetype}, time-of-day={bucket}):\n"
+        f"Title: {anchor_title}\n"
+        f"Body: {anchor_body}\n\n"
+        f"Recently used titles to avoid repeating: {avoid}\n"
+        "Write one fresh variation now."
+    )
+    payload = _llm_chat_json(
+        POST_VARIANT_SYSTEM_PROMPT.format(language=LANGUAGE_NAMES[language]),
+        user_prompt,
+        tick_state=tick_state,
+    )
+    if not payload:
+        return None
+
+    title = str(payload.get('title') or '').strip()
+    body = str(payload.get('body') or '').strip()
+    if not title or not body:
+        return None
+    if len(title) > 120 or len(body) > 600:
+        return None
+    if title in recent_titles:
+        return None
+    if not _text_language_matches(title + body, language):
+        return None
+    if _variant_conflicts_with_bucket(title + body, bucket):
+        return None
+    return title, body
+
+
+def _compose_comment(post, account, language, tick_state=None):
+    """LLM comment reacting to the post; falls back to static templates."""
+    templates = COMMENT_TEMPLATES.get(post.category or 'general') or COMMENT_TEMPLATES['general']
+    static_pool = templates.get(language) or templates['en']
+
+    excerpt = (post.body or '')[:300]
+    style_examples = random.sample(static_pool, k=min(2, len(static_pool)))
+    user_prompt = (
+        f"Post title: {post.title}\n"
+        f"Post body: {excerpt}\n"
+        f"Post category: {post.category}\n"
+        f"Style examples (tone reference only, do not copy): {style_examples}\n"
+        "Write the reply comment now."
+    )
+    payload = _llm_chat_json(
+        COMMENT_SYSTEM_PROMPT.format(language=LANGUAGE_NAMES[language]),
+        user_prompt,
+        tick_state=tick_state,
+        max_tokens=140,
+    )
+    if payload:
+        comment = str(payload.get('comment') or '').strip()
+        if (
+            comment
+            and len(comment) <= 220
+            and 'http' not in comment.lower()
+            and _text_language_matches(comment, language)
+        ):
+            return comment, 'llm'
+    return random.choice(static_pool), 'template'
+
+
 def _bot_avatar_url(persona_key, index):
     source, style = BOT_AVATAR_SOURCES[index % len(BOT_AVATAR_SOURCES)]
     seed = f'ntupool-{persona_key}'
@@ -707,18 +921,32 @@ def _template_candidates(account, bucket):
     return candidates
 
 
-def _build_post(account, now=None):
-    """Pick a template matching the bot's language and the SGT time of day.
+def _build_post(account, now=None, tick_state=None):
+    """Build the post content for a bot.
 
-    Titles used by any bot within the reuse window are avoided while
-    alternatives exist, so the feed does not show duplicate topics.
+    A static template (matching the bot's language and the SGT time bucket,
+    avoiding recently used titles) is always selected first as the anchor.
+    When LLM content is enabled, the anchor is rewritten into a fresh
+    variation; any failure or validation miss falls back to the anchor, so
+    the scheduler never depends on the API being up.
+
+    Returns (title, body, content_source) where content_source is
+    'llm' or 'template'.
     """
     now = now or datetime.utcnow()
-    candidates = _template_candidates(account, _time_bucket(now))
+    bucket = _time_bucket(now)
+    candidates = _template_candidates(account, bucket)
     recent_titles = _recent_bot_post_titles(now)
     fresh = [item for item in candidates if item[0] not in recent_titles]
-    title, body = random.choice(fresh or candidates)
-    return title, body
+    anchor_title, anchor_body = random.choice(fresh or candidates)
+
+    variant = _generate_post_variant(
+        account, anchor_title, anchor_body, bucket, recent_titles,
+        tick_state=tick_state,
+    )
+    if variant is not None:
+        return variant[0], variant[1], 'llm'
+    return anchor_title, anchor_body, 'template'
 
 
 def _schedule_next_run(account, now):
@@ -740,7 +968,7 @@ def _invalidate_live_status_report_cache():
         pass
 
 
-def _run_post_action(now, plan, window_end):
+def _run_post_action(now, plan, window_end, tick_state=None):
     posted_count = _posted_count_for_day(plan.day)
     if posted_count >= plan.target_count:
         return {'action': 'skipped', 'reason': 'daily_target_reached',
@@ -755,7 +983,7 @@ def _run_post_action(now, plan, window_end):
         return {'action': 'skipped', 'reason': 'no_due_bot_account',
                 'posted_count': posted_count, 'target_count': plan.target_count}
 
-    title, body = _build_post(account, now)
+    title, body, content_source = _build_post(account, now, tick_state=tick_state)
     post_time = _scattered_timestamp(now)
     post = Post(
         title=title,
@@ -773,7 +1001,10 @@ def _run_post_action(now, plan, window_end):
         action_type=ACTION_CREATE_POST,
         status='posted',
         post_id=post.id,
-        reason=f'daily_plan:{plan.day}:{posted_count + 1}/{plan.target_count}',
+        reason=(
+            f'daily_plan:{plan.day}:{posted_count + 1}/{plan.target_count}'
+            f':{content_source}'
+        ),
         created_at=now,
     ))
     db.session.commit()
@@ -782,6 +1013,7 @@ def _run_post_action(now, plan, window_end):
         'action': 'posted',
         'post_id': post.id,
         'bot': account.persona_key,
+        'content_source': content_source,
         'posted_count': posted_count + 1,
         'target_count': plan.target_count,
     }
@@ -937,20 +1169,22 @@ def _comment_counts(post_ids, bot_ids):
 
 
 def _select_comment_target(now, bot_ids):
-    """Pick a post worth replying to.
+    """Pick a post worth replying to, browsing like a human would.
 
-    Priority: human posts with no replies at all, then quiet human posts,
-    then unanswered recent bot posts (so threads do not look dead).
+    The candidate pool is the community feed's FIRST PAGE (latest 20
+    non-pinned posts, capped at 14 days old) — bots react to what a visitor
+    actually sees, instead of digging up old threads. Priority within the
+    page: human posts with no replies, then quiet human posts, then
+    unanswered bot posts (so threads do not look dead).
     """
-    human_cutoff = now - HUMAN_POST_LOOKBACK
-    bot_cutoff = now - BOT_POST_LOOKBACK
     posts = (
         Post.query.filter(
             Post.is_deleted.is_(False),
-            Post.created_at >= min(human_cutoff, bot_cutoff),
+            Post.is_pinned.isnot(True),
+            Post.created_at >= now - COMMENT_TARGET_MAX_AGE,
         )
         .order_by(Post.created_at.desc())
-        .limit(60)
+        .limit(FEED_FIRST_PAGE_SIZE)
         .all()
     )
     if not posts:
@@ -965,12 +1199,12 @@ def _select_comment_target(now, bot_ids):
         total = totals.get(post.id, 0)
         bots_here = bot_totals.get(post.id, 0)
         is_bot_post = post.author_id in bot_ids
-        if not is_bot_post and post.created_at >= human_cutoff:
+        if not is_bot_post:
             if total == 0:
                 lonely_human.append(post)
             elif total < MAX_TOTAL_COMMENTS_FOR_TARGET and bots_here < MAX_BOT_COMMENTS_PER_POST:
                 quiet_human.append(post)
-        elif is_bot_post and post.created_at >= bot_cutoff and total == 0:
+        elif total == 0:
             lonely_bot.append(post)
 
     for pool in (lonely_human, quiet_human, lonely_bot):
@@ -999,7 +1233,7 @@ def _select_commenting_account(post, bot_ids):
     return random.choice(candidates)
 
 
-def _run_comment_action(now, plan, window_end):
+def _run_comment_action(now, plan, window_end, tick_state=None):
     commented_count = _action_count_for_day(plan.day, ACTION_CREATE_COMMENT)
     target = plan.comment_target_count or 0
     if commented_count >= target:
@@ -1022,8 +1256,7 @@ def _run_comment_action(now, plan, window_end):
                 'commented_count': commented_count, 'target_count': target}
 
     language = _post_language(post)
-    templates = COMMENT_TEMPLATES.get(post.category or 'general') or COMMENT_TEMPLATES['general']
-    body = random.choice(templates.get(language) or templates['en'])
+    body, content_source = _compose_comment(post, account, language, tick_state=tick_state)
 
     comment = Comment(
         body=body,
@@ -1037,7 +1270,10 @@ def _run_comment_action(now, plan, window_end):
         action_type=ACTION_CREATE_COMMENT,
         status='posted',
         post_id=post.id,
-        reason=f'daily_plan:{plan.day}:{commented_count + 1}/{target}',
+        reason=(
+            f'daily_plan:{plan.day}:{commented_count + 1}/{target}'
+            f':{content_source}'
+        ),
         created_at=now,
     ))
     db.session.commit()
@@ -1046,6 +1282,7 @@ def _run_comment_action(now, plan, window_end):
         'action': 'posted',
         'post_id': post.id,
         'bot': account.persona_key,
+        'content_source': content_source,
         'commented_count': commented_count + 1,
         'target_count': target,
     }
@@ -1141,9 +1378,13 @@ def run_community_post_tick(now=None):
 
     plan = get_or_create_daily_plan(now=now)
 
-    post_result = _run_post_action(now, plan, window_end)
+    # At most one LLM call per tick keeps the cron request fast and cheap;
+    # whichever action fires second falls back to static templates.
+    tick_state = {'llm_calls': 0}
+
+    post_result = _run_post_action(now, plan, window_end, tick_state=tick_state)
     report_result = _run_report_action(now, plan, window_end)
-    comment_result = _run_comment_action(now, plan, window_end)
+    comment_result = _run_comment_action(now, plan, window_end, tick_state=tick_state)
     like_result = _run_like_action(now, plan, window_end)
 
     result = {

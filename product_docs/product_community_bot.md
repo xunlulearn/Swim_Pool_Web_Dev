@@ -16,10 +16,12 @@ Keep the community feed and the manual-report feed looking alive while the real 
 ## Content rules
 - Post templates are split by time-of-day bucket (morning / midday / evening / any); time-referencing copy ("tonight", "早场") only appears in its own bucket.
 - A title used by any bot within the last 10 days is not reused while alternatives exist.
+- **LLM variation (2026-07)**: when `COMMUNITY_BOT_LLM_CONTENT` is enabled and `OPENAI_API_KEY` is set, the selected template becomes an *anchor* that the chat model rewrites into a fresh variation (same topic/tone/persona language). Guardrails: 8s timeout, at most ONE LLM call per tick, strict validation (language match, length caps, no recently used title, no planning for a time of day that already passed — a morning post may say "tonight", an evening post may not say "this morning"). Any failure silently falls back to the static template, so the scheduler never depends on the API. `bot_activity_logs.reason` ends with `:llm` or `:template` for auditing. Cost: at most ~9 short gpt-4o-mini calls/day.
 - Pool reports are decoupled from posts: different bot, different minute, status mirrors the weather engine ("Open" only when GREEN).
 
 ## Interactions
-- Bots comment on and like recent posts, prioritising **human posts with zero replies**, then quiet human posts, then unanswered bot posts.
+- Comment targets come from the community feed's **first page** (latest 20 non-pinned posts, max 14 days old) — bots react to what a visitor actually sees. Priority: human posts with zero replies, then quiet human posts, then unanswered bot posts. Daily volume 2-4.
+- Comments are LLM-composed to react to the post's actual content (same guardrails and static-template fallback as posts; never states current pool conditions as fact, no URLs).
 - Comment language always matches the post language; a bot never comments on its own post, at most 2 bot comments per post, and bot likes never duplicate.
 - Every action is written to `bot_activity_logs` (`create_post`, `pool_report`, `create_comment`, `like_post`) for auditing and daily counting.
 

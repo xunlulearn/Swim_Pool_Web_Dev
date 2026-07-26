@@ -103,6 +103,9 @@ class Config:
     # Per-user chat rate limits (LLM calls cost real money).
     CHATBOT_BURST_LIMIT_PER_MINUTE = env_int('CHATBOT_BURST_LIMIT_PER_MINUTE', 8)
     CHATBOT_DAILY_MESSAGE_LIMIT = env_int('CHATBOT_DAILY_MESSAGE_LIMIT', 80)
+    # Community bot LLM content generation (anchored on templates, cheap,
+    # auto-falls back to static templates on any failure).
+    COMMUNITY_BOT_LLM_CONTENT = env_bool('COMMUNITY_BOT_LLM_CONTENT', True)
 
 class DevelopmentConfig(Config):
     DEBUG = True
@@ -122,6 +125,8 @@ class TestingConfig(Config):
     # Rate limits are exercised explicitly in dedicated tests.
     CHATBOT_BURST_LIMIT_PER_MINUTE = 0
     CHATBOT_DAILY_MESSAGE_LIMIT = 0
+    # LLM content generation is mocked explicitly in dedicated tests.
+    COMMUNITY_BOT_LLM_CONTENT = False
 
 config = {
     'development': DevelopmentConfig,
