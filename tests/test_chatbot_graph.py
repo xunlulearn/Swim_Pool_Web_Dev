@@ -5,6 +5,7 @@ import pytest
 from langchain_core.documents import Document
 
 from app.services.chatbot import graph as graph_module
+from app.services.chatbot import hard_kb
 
 
 class _FakeResponse:
@@ -203,7 +204,15 @@ def test_graph_small_talk_skips_retrieval(monkeypatch):
     result = rag_app.invoke({"question": "hi"})
     assert result["answer"] == "hi there"
     assert result.get("sources", []) == []
-    assert result["quick_questions"] == []
+    # Every reply now ends with three clickable hard-KB suggestions so the
+    # user always has a guided next step.
+    assert len(result["quick_questions"]) == 3
+    canonical = {
+        hard_kb.question_for(entry, lang)
+        for entry in hard_kb.HARD_KB_ENTRIES
+        for lang in ("zh", "en")
+    }
+    assert set(result["quick_questions"]) <= canonical
 
 
 def test_graph_capability_question_returns_domain_answer_without_generic_identity(monkeypatch):
@@ -283,7 +292,7 @@ def test_graph_knowledge_base_path_returns_unknown_when_no_context(monkeypatch):
         db_tool_max_calls=3,
     )
 
-    result = rag_app.invoke({"question": "what are the opening hours?"})
+    result = rag_app.invoke({"question": "what is the pool evacuation procedure during a storm?"})
     assert result["answer"] == graph_module.DEFAULT_UNKNOWN_REPLY_EN
     assert result.get("sources", []) == []
     assert len(result.get("quick_questions", [])) == 3
@@ -315,7 +324,15 @@ def test_graph_knowledge_base_path_uses_retrieved_context(monkeypatch):
     result = rag_app.invoke({"question": "pool open close time"})
     assert result["answer"] == "KB answer"
     assert result["sources"] == ["https://ntupool.org/"]
-    assert result["quick_questions"] == []
+    # Every reply now ends with three clickable hard-KB suggestions so the
+    # user always has a guided next step.
+    assert len(result["quick_questions"]) == 3
+    canonical = {
+        hard_kb.question_for(entry, lang)
+        for entry in hard_kb.HARD_KB_ENTRIES
+        for lang in ("zh", "en")
+    }
+    assert set(result["quick_questions"]) <= canonical
 
 
 def test_graph_uses_homepage_context_for_live_pool_decision(monkeypatch):
@@ -426,7 +443,7 @@ def test_graph_page_context_routes_time_followup_to_live_status(monkeypatch):
     assert "Lightning trend chart total" in llm.calls[0][-1].content
 
 
-def test_graph_known_answer_does_not_return_quick_questions_for_zh(monkeypatch):
+def test_graph_known_answer_still_offers_hard_kb_suggestions_for_zh(monkeypatch):
     doc = Document(
         page_content="Follow the register page flow on ntupool.org to create an account.",
         metadata={"source": "https://ntupool.org/"},
@@ -459,9 +476,17 @@ def test_graph_known_answer_does_not_return_quick_questions_for_zh(monkeypatch):
         db_tool_max_calls=3,
     )
 
-    result = rag_app.invoke({"question": "\u5982\u4f55\u6ce8\u518c\u8d26\u53f7\uff1f"})
+    result = rag_app.invoke({"question": "\u6cf3\u6c60\u7684\u50a8\u7269\u67dc\u9700\u8981\u62bc\u91d1\u5417\uff1f"})
     assert result["answer"] == "Use the Register page on ntupool.org."
-    assert result["quick_questions"] == []
+    # Every reply now ends with three clickable hard-KB suggestions so the
+    # user always has a guided next step.
+    assert len(result["quick_questions"]) == 3
+    canonical = {
+        hard_kb.question_for(entry, lang)
+        for entry in hard_kb.HARD_KB_ENTRIES
+        for lang in ("zh", "en")
+    }
+    assert set(result["quick_questions"]) <= canonical
 
 
 def test_graph_unknown_answer_returns_three_related_faq_questions(monkeypatch):
@@ -489,7 +514,7 @@ def test_graph_unknown_answer_returns_three_related_faq_questions(monkeypatch):
         db_tool_max_calls=3,
     )
 
-    result = rag_app.invoke({"question": "\u5982\u4f55\u6ce8\u518c\uff1f"})
+    result = rag_app.invoke({"question": "\u6cf3\u6c60\u6709\u63d0\u4f9b\u6bdb\u5dfe\u670d\u52a1\u5417\uff1f"})
     faq_questions = set(graph_module._load_faq_questions())
     faq_questions_zh = {
         localized
@@ -652,7 +677,7 @@ def test_graph_backend_rules_question_prefers_vector_context_when_available(monk
     )
 
     result = rag_app.invoke(
-        {"question": "\u95ea\u7535\u7edf\u8ba1\u7684\u65f6\u95f4\u7a97\u53e3\u662f\u4ec0\u4e48"}
+        {"question": "\u5411\u91cf\u68c0\u7d22\u7684 top_k \u53c2\u6570\u662f\u600e\u4e48\u914d\u7f6e\u7684"}
     )
     assert result["answer"] == "vector rule answer"
     assert result["sources"] == ["kb://faq.md"]
@@ -749,7 +774,7 @@ def test_translate_to_english_falls_back_to_qa_model_when_intent_model_fails(mon
     monkeypatch.setattr(graph_module, "_record_model_failure", _capture_failure)
 
     translated = graph_module._translate_to_english(
-        "\u5982\u4f55\u6ce8\u518c\uff1f",
+        "\u6cf3\u6c60\u6709\u63d0\u4f9b\u6bdb\u5dfe\u670d\u52a1\u5417\uff1f",
         _FailingLLM("intent model timeout"),
         _FakeLLM(reply="How do I register an account?"),
     )
@@ -767,8 +792,8 @@ def test_translate_to_english_logs_validation_failure_before_fallback(monkeypatc
     monkeypatch.setattr(graph_module, "_record_model_failure", _capture_failure)
 
     translated = graph_module._translate_to_english(
-        "\u5982\u4f55\u6ce8\u518c\uff1f",
-        _FakeLLM(reply="\u5982\u4f55\u6ce8\u518c\uff1f"),
+        "\u6cf3\u6c60\u6709\u63d0\u4f9b\u6bdb\u5dfe\u670d\u52a1\u5417\uff1f",
+        _FakeLLM(reply="\u6cf3\u6c60\u6709\u63d0\u4f9b\u6bdb\u5dfe\u670d\u52a1\u5417\uff1f"),
         _FakeLLM(reply="How do I register an account?"),
     )
 

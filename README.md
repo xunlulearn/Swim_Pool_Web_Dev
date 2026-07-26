@@ -300,6 +300,8 @@ For Vercel and LangGraph/LangChain chatbot deployment details, see
 13. Browser chat flows recover from stale CSRF tokens by requesting `GET /api/csrf-token` and retrying once on CSRF `400`.
 14. Per-user rate limits protect the LLM budget: burst limit (default 8 msg/min) and daily cap (default 80/day, counted via Supabase, fail-open). HTTP 429 with a bilingual message when exceeded.
 15. Routing is heuristic-first: the external intent model is only consulted for ambiguous messages (10s timeout). Answers are generated directly in the user's language; no upfront translation step.
+16. A hard knowledge base of 50 curated bilingual Q&A entries answers matching questions directly with zero model calls (~1 ms). Live-status and record-lookup questions are deliberately excluded and keep using the live pipeline.
+17. Every reply returns 3 clickable suggested questions drawn from the hard knowledge base; clicking one answers instantly.
 
 ## Chatbot Knowledge Sync
 

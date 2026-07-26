@@ -41,7 +41,7 @@ class _ExplodingLLM:
     [
         ("hello", graph_module.INTENT_SMALL_TALK),
         ("你好", graph_module.INTENT_SMALL_TALK),
-        ("What are the pool opening hours on weekends?", graph_module.INTENT_KNOWLEDGE_BASE),
+        ("What is the pool lane etiquette for overtaking?", graph_module.INTENT_KNOWLEDGE_BASE),
         ("现在适合去游泳吗？", graph_module.INTENT_KNOWLEDGE_BASE),
         ("show me the latest posts", graph_module.INTENT_DATABASE),
         ("列出今天最新的手动上报", graph_module.INTENT_DATABASE),
@@ -93,7 +93,7 @@ def test_chinese_kb_answer_uses_single_llm_call_and_language_instruction(monkeyp
     llm = _FakeLLM(reply="工作日的开放时间是早上 7 点到晚上 9 点半。")
     rag_app = _build_app(llm, _ExplodingLLM(), monkeypatch, [(doc, 0.9)])
 
-    result = rag_app.invoke({"question": "工作日泳池几点开放？"})
+    result = rag_app.invoke({"question": "泳池的更衣室是怎么安排的？"})
 
     # Exactly ONE model call: the answer generation. No translate-in,
     # no intent call, no translate-out.
@@ -135,9 +135,9 @@ def test_second_chance_translated_retrieval_recovers_english_chunks(monkeypatch)
         db_tool_max_calls=3,
     )
 
-    result = rag_app.invoke({"question": "工作日泳池几点开放？"})
+    result = rag_app.invoke({"question": "泳池的更衣室是怎么安排的？"})
 
-    assert search_calls == ["工作日泳池几点开放？", "What are the weekday opening hours?"]
+    assert search_calls == ["泳池的更衣室是怎么安排的？", "What are the weekday opening hours?"]
     assert result["answer"] == "工作日 07:00-21:30 开放。"
     assert result["sources"] == ["kb://hours-en"]
 
@@ -167,11 +167,11 @@ def test_english_question_never_triggers_retrieval_translation(monkeypatch):
         db_tool_max_calls=3,
     )
 
-    result = rag_app.invoke({"question": "What are the pool opening hours on weekends?"})
+    result = rag_app.invoke({"question": "What is the pool lane etiquette for overtaking?"})
 
     # Retrieval ran with the English question only (extra entries come from
     # the quick-question helper, never from a translation retry).
-    assert search_calls[0] == "What are the pool opening hours on weekends?"
+    assert search_calls[0] == "What is the pool lane etiquette for overtaking?"
     assert result["answer"] == graph_module.DEFAULT_UNKNOWN_REPLY_EN
 
 
@@ -192,7 +192,7 @@ def test_localize_safety_net_translates_when_model_ignores_language(monkeypatch)
     llm = _FakeLLM(reply="Weekday hours are 07:00-21:30.")
     rag_app = _build_app(llm, _ExplodingLLM(), monkeypatch, [(doc, 0.9)])
 
-    result = rag_app.invoke({"question": "工作日泳池几点开放？"})
+    result = rag_app.invoke({"question": "泳池的更衣室是怎么安排的？"})
 
     assert translated["target"] == "zh"
     assert result["answer"] == "工作日 07:00-21:30 开放。"

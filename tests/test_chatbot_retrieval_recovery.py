@@ -117,7 +117,7 @@ def test_split_qa_chunk_pulls_in_its_answer_chunk(monkeypatch):
     )
 
     result = rag_app.invoke({
-        'question': 'How do I search for posts in the community?',
+        'question': 'How do I appeal a moderation decision on this website?',
         'page_context': PAGE_CONTEXT,
     })
 
@@ -138,7 +138,7 @@ def test_page_context_does_not_disable_low_confidence_fallback(monkeypatch):
     rag_app = _build(llm, monkeypatch, [(weak_doc, 0.30)])
 
     result = rag_app.invoke({
-        'question': 'Where do lost goggles end up at the pool?',
+        'question': 'What is the towel service arrangement at the pool?',
         'page_context': PAGE_CONTEXT,
     })
 
@@ -159,7 +159,7 @@ def test_page_context_does_not_disable_backend_snapshot_fallback(monkeypatch):
     rag_app = _build(llm, monkeypatch, [])  # vector search returns nothing
 
     result = rag_app.invoke({
-        'question': 'What is the lightning threshold configured in the backend rules?',
+        'question': 'What is the vector retrieval top_k configured in the backend rules?',
         'page_context': PAGE_CONTEXT,
     })
 
@@ -199,7 +199,7 @@ def test_chinese_kb_question_still_gets_translation_retry_with_page_context(monk
     )
 
     result = rag_app.invoke({
-        'question': '需要多少条上报才能覆盖天气状态？',
+        'question': '泳池的水温一般维持在多少度？',
         'page_context': PAGE_CONTEXT,
     })
 
@@ -254,7 +254,7 @@ def test_page_context_still_reaches_the_model_alongside_kb_chunks(monkeypatch):
     rag_app = _build(llm, monkeypatch, [(kb_doc, 0.9)])
 
     result = rag_app.invoke({
-        'question': 'What are the weekday opening hours?',
+        'question': 'What is the swim cap policy for long hair?',
         'page_context': PAGE_CONTEXT,
     })
 

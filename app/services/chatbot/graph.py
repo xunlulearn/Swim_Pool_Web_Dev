@@ -21,6 +21,8 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langgraph.graph import END, START, StateGraph
 from supabase import create_client
 
+from app.services.chatbot import hard_kb
+
 
 INTENT_SMALL_TALK = "small_talk"
 INTENT_DATABASE = "database"
@@ -766,6 +768,8 @@ class GraphState(TypedDict, total=False):
     answer: NotRequired[str]
     sources: NotRequired[list[str]]
     quick_questions: NotRequired[list[str]]
+    hard_kb_id: NotRequired[str]
+    hard_kb_score: NotRequired[float]
 
 
 _graph_lock = threading.Lock()
@@ -2879,6 +2883,46 @@ def _build_graph(
     max_context_chars: int,
     db_tool_max_calls: int,
 ) -> Any:
+    def hard_kb_node(state: GraphState) -> GraphState:
+        """Answer curated questions instantly, with zero model calls.
+
+        A confident hard-KB hit short-circuits the whole pipeline: no intent
+        classification, no retrieval, no generation. Clicking a suggestion
+        chip always lands here because the chip text is the canonical
+        question itself.
+        """
+        question = (state.get("question") or "").strip()
+        if not question:
+            return {}
+
+        # "What can you do?" has its own purpose-built static answer that
+        # also states the assistant's identity; do not shadow it here.
+        if _looks_like_capability_question(question):
+            return {}
+
+        match = hard_kb.match_hard_kb(question)
+        if match is None:
+            return {}
+
+        entry, score = match
+        language = _detect_language(question)
+        return {
+            "answer": hard_kb.answer_for(entry, language),
+            "sources": ["app://hard-kb/" + entry["id"]],
+            "mode": INTENT_KNOWLEDGE_BASE,
+            "intent": INTENT_KNOWLEDGE_BASE,
+            "input_language": language,
+            "original_question": question,
+            "hard_kb_id": entry["id"],
+            "hard_kb_score": round(float(score), 3),
+            "quick_questions": hard_kb.suggested_questions(
+                language, count=3, exclude_ids=(entry["id"],)
+            ),
+        }
+
+    def route_after_hard_kb(state: GraphState) -> str:
+        return END if state.get("hard_kb_id") else "preprocess_node"
+
     def preprocess_node(state: GraphState) -> GraphState:
         # No upfront translation: intent heuristics are bilingual, the QA
         # model answers natively in the user's language, and retrieval only
@@ -3211,6 +3255,10 @@ def _build_graph(
     def localize_node(state: GraphState) -> GraphState:
         input_language = str(state.get("input_language") or "en")
         raw_answer = _extract_text_content(state.get("answer", ""))
+        # Hard-KB answers already carry their suggestions and need no
+        # localisation (they are stored per language).
+        if state.get("hard_kb_id"):
+            return {}
         answer = raw_answer or _unknown_reply_for_question(
             state.get("original_question") or ""
         )
@@ -3233,18 +3281,35 @@ def _build_graph(
         )
         if not quick_questions and input_language == "en":
             quick_questions = base_quick_questions
+
+        # Every reply ends with three clickable suggestions drawn from the
+        # hard KB, so the user always has a guided next step and each chip
+        # resolves instantly on click.
+        if len(quick_questions) < 3:
+            for suggestion in hard_kb.suggested_questions(input_language, count=3):
+                if suggestion not in quick_questions:
+                    quick_questions.append(suggestion)
+                if len(quick_questions) >= 3:
+                    break
+
         return {
             "answer": answer,
-            "quick_questions": quick_questions,
+            "quick_questions": quick_questions[:3],
         }
 
     graph = StateGraph(GraphState)
+    graph.add_node("hard_kb_node", hard_kb_node)
     graph.add_node("preprocess_node", preprocess_node)
     graph.add_node("intent_node", intent_node)
     graph.add_node("retrieve_node", retrieve_node)
     graph.add_node("generate_node", generate_node)
     graph.add_node("localize_node", localize_node)
-    graph.add_edge(START, "preprocess_node")
+    graph.add_edge(START, "hard_kb_node")
+    graph.add_conditional_edges(
+        "hard_kb_node",
+        route_after_hard_kb,
+        {END: END, "preprocess_node": "preprocess_node"},
+    )
     graph.add_edge("preprocess_node", "intent_node")
     graph.add_edge("intent_node", "retrieve_node")
     graph.add_edge("retrieve_node", "generate_node")

@@ -249,3 +249,23 @@ Live testing with 12 production questions surfaced 2 wrong answers. Each traced 
 **F. Rule vs count confusion.** "How many reports are NEEDED to override" (a requirement) and "how many reports today" (a row count) both matched. Fix: `RECORD_SCOPE_HINTS` (time windows + listing verbs, no counting words) is what distinguishes a lookup.
 
 Regression coverage: `tests/test_chatbot_routing_matrix.py` (64-case bilingual routing matrix + hint-matching semantics) and `tests/test_chatbot_retrieval_recovery.py` (each recovery path must survive page context).
+
+## 14. Hard Knowledge Base (2026-07-26)
+
+A curated layer of 50 bilingual Q&A entries answered directly, with **zero model calls**.
+
+**Flow.** `hard_kb_node` runs first in the graph. A confident match short-circuits the entire pipeline (no intent classification, no retrieval, no generation) and returns the stored answer in the question's language, typically in ~1 ms. A miss falls through to the normal pipeline unchanged.
+
+**Matching (precision first — a wrong canned answer is worse than a miss).**
+1. Live/current-situation questions ("现在开放吗", "is it safe to swim now") and record lookups ("今天有多少条上报", "show me the latest posts") never match: those answers are dynamic.
+2. Exact normalized match wins immediately.
+3. Topic anchors participate in RANKING, not just thresholding — an on-topic entry beats a higher-scoring off-topic one. Anchored candidates need 0.42 similarity; unanchored ones need 0.86.
+4. Anchors use word boundaries with English inflections for ASCII and substring semantics for CJK, so "api" can never fire inside "capital" while "save" still anchors "saved".
+5. Similarity blends token/bigram coverage, Jaccard and sequence ratio, so short paraphrases ("闪电冷却多久") still match full canonical questions.
+6. Capability questions are left to the dedicated static capability answer rather than shadowed here.
+
+**Guided suggestions.** Every reply — hard-KB hit or normal pipeline — returns exactly 3 randomly drawn hard-KB questions in the user's language, rendered as clickable chips by `chatbot.js`. Clicking sends the canonical question text, which matches exactly and answers instantly. The just-answered entry is excluded from its own suggestions.
+
+**Coverage.** 12 weather/status rules, 6 operating hours, 7 manual reports, 9 account/auth, 11 community features, 5 assistant/site info.
+
+**Verification.** 45 dedicated tests: all 100 canonical questions round-trip (every chip resolves to itself), all 306 variants map to the right entry, dynamic and out-of-scope questions never match, and same-topic families (4 lightning entries, 5 report entries) discriminate correctly.
