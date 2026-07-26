@@ -319,6 +319,9 @@ DATABASE_HINTS = (
     "collections",
     "manual report",
     "pool report",
+    "report",
+    "reports",
+    "feed",
     "latest post",
     "\u5e16\u5b50",
     "\u8bc4\u8bba",
@@ -334,7 +337,9 @@ KNOWLEDGE_BASE_HINTS = (
     "swimming",
     "status",
     "open",
+    "opening",
     "close",
+    "closing",
     "weather",
     "lightning",
     "rain",
@@ -343,6 +348,21 @@ KNOWLEDGE_BASE_HINTS = (
     "official",
     "policy",
     "api",
+    "community",
+    "account",
+    "profile",
+    "guest",
+    "member",
+    "verify",
+    "verification",
+    "register",
+    "login",
+    "amber",
+    "green",
+    "red",
+    "lane",
+    "locker",
+    "src",
     "contact",
     "developer",
     "dev",
@@ -379,6 +399,19 @@ KNOWLEDGE_BASE_HINTS = (
     "\u5173\u4e8e",
     "\u9879\u76ee",
     "\u5f00\u6e90",
+    "\u72b6\u6001",
+    "\u6cf3\u9053",
+    "\u50a8\u7269\u67dc",
+    "\u4f1a\u5458",
+    "\u6e38\u5ba2",
+    "\u6ce8\u518c",
+    "\u767b\u5f55",
+    "\u9a8c\u8bc1",
+    "\u8d26\u53f7",
+    "\u4e2a\u4eba\u4e3b\u9875",
+    "\u5047\u671f",
+    "\u5047\u65e5",
+    "\u65f6\u6bb5",
 )
 
 DATABASE_LOOKUP_HINTS = (
@@ -400,6 +433,17 @@ DATABASE_LOOKUP_HINTS = (
     "this month",
     "id ",
     " by ",
+    "\u6700\u65b0",
+    "\u6700\u8fd1",
+    "\u4eca\u5929",
+    "\u6628\u5929",
+    "\u672c\u5468",
+    "\u8fd9\u5468",
+    "\u672c\u6708",
+    "\u5217\u51fa",
+    "\u663e\u793a",
+    "\u6709\u54ea\u4e9b",
+    "\u67e5\u4e00\u4e0b",
 )
 
 POLICY_QUESTION_HINTS = (
@@ -427,6 +471,21 @@ POLICY_QUESTION_HINTS = (
     "logged in",
     "register",
     "registered",
+    "\u8c01\u53ef\u4ee5",
+    "\u8c01\u80fd",
+    "\u5141\u8bb8",
+    "\u53ef\u4e0d\u53ef\u4ee5",
+    "\u80fd\u4e0d\u80fd",
+    "\u662f\u5426\u53ef\u4ee5",
+    "\u5fc5\u987b",
+    "\u8981\u6c42",
+    "\u6761\u4ef6",
+    "\u6743\u9650",
+    "\u89c4\u5219",
+    "\u8ba4\u8bc1",
+    "\u53ef\u4ee5",
+    "\u80fd\u5426",
+    "\u53ef\u5426",
 )
 
 POLICY_DOMAIN_HINTS = (
@@ -441,6 +500,17 @@ POLICY_DOMAIN_HINTS = (
     "pool report",
     "submit report",
     "ntupool",
+    "\u6cf3\u6c60",
+    "\u6e38\u6cf3",
+    "\u5929\u6c14",
+    "\u95ea\u7535",
+    "\u96f7\u7535",
+    "\u4e0b\u96e8",
+    "\u4e0a\u62a5",
+    "\u624b\u52a8\u4e0a\u62a5",
+    "\u5e16\u5b50",
+    "\u8bc4\u8bba",
+    "\u793e\u533a",
 )
 
 BACKEND_RULE_CORE_HINTS = (
@@ -574,6 +644,9 @@ LIVE_POOL_DOMAIN_HINTS = (
     "\u95ea\u7535",
     "\u4e0b\u96e8",
     "\u5929\u6c14",
+    "\u6cf3\u9053",
+    "\u6c34",
+    "\u6c60",
 )
 
 LIVE_CONTEXT_FOLLOWUP_HINTS = (
@@ -689,6 +762,7 @@ class GraphState(TypedDict, total=False):
     intent: NotRequired[str]
     mode: NotRequired[str]
     context: NotRequired[list[str]]
+    kb_chunks: NotRequired[int]
     answer: NotRequired[str]
     sources: NotRequired[list[str]]
     quick_questions: NotRequired[list[str]]
@@ -837,6 +911,54 @@ def _coerce_score(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+_CJK_RE = re.compile(r"[一-鿿]")
+
+
+def _hint_is_cjk(hint: str) -> bool:
+    return bool(_CJK_RE.search(hint or ""))
+
+
+@lru_cache(maxsize=4096)
+def _hint_pattern(hint: str):
+    """Word-boundary matcher for an ASCII hint token.
+
+    A trailing optional plural suffix keeps singular hints matching plural
+    text ("report" -> "reports") without reintroducing fragment matches
+    ("api" must not match "capital").
+    """
+    escaped = re.escape(hint)
+    prefix = r"\b" if hint[:1].isalnum() else ""
+    if hint[-1:].isalpha():
+        suffix = r"(?:s|es)?\b"
+    elif hint[-1:].isalnum():
+        suffix = r"\b"
+    else:
+        suffix = ""
+    return re.compile(prefix + escaped + suffix)
+
+
+def _contains_hint(text: str, hints) -> bool:
+    """Hint matching with word boundaries for ASCII, substring for CJK.
+
+    Plain substring matching used to fire on fragments: "api" matched
+    "c-api-tal", "dev" matched "device", "open" matched "opening" — routing
+    unrelated questions into site-knowledge answers. CJK has no word
+    boundaries, so those hints keep substring semantics.
+    """
+    lowered = (text or "").lower()
+    if not lowered:
+        return False
+    for hint in hints:
+        if not hint:
+            continue
+        if _hint_is_cjk(hint):
+            if hint in lowered:
+                return True
+        elif _hint_pattern(hint.lower()).search(lowered):
+            return True
+    return False
 
 
 def _detect_language(text: str) -> str:
@@ -1295,7 +1417,7 @@ def _quick_questions_for_unanswerable(question: str) -> list[str]:
         "submit report",
         "report manually",
     )
-    if any(token in lowered for token in report_tokens):
+    if _contains_hint(lowered, report_tokens):
         return REPORT_QUICK_QUESTIONS_EN
 
     hour_tokens = (
@@ -1308,7 +1430,7 @@ def _quick_questions_for_unanswerable(question: str) -> list[str]:
         "public holiday",
         "hours",
     )
-    if any(token in lowered for token in hour_tokens):
+    if _contains_hint(lowered, hour_tokens):
         return HOURS_QUICK_QUESTIONS_EN
 
     weather_tokens = (
@@ -1319,7 +1441,7 @@ def _quick_questions_for_unanswerable(question: str) -> list[str]:
         "closed now",
         "status",
     )
-    if any(token in lowered for token in weather_tokens):
+    if _contains_hint(lowered, weather_tokens):
         return WEATHER_QUICK_QUESTIONS_EN
 
     return GENERAL_QUICK_QUESTIONS_EN
@@ -1333,7 +1455,7 @@ def _looks_like_capability_question(question: str) -> bool:
     compact = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", lowered)
     if compact in CAPABILITY_QUESTION_EXACT_COMPACT:
         return True
-    return any(token in lowered for token in CAPABILITY_QUESTION_HINTS)
+    return _contains_hint(lowered, CAPABILITY_QUESTION_HINTS)
 
 
 def _is_small_talk_heuristic(question: str) -> bool:
@@ -1351,8 +1473,131 @@ def _is_small_talk_heuristic(question: str) -> bool:
     return False
 
 
+# Signals that scope a query to CONCRETE STORED RECORDS (a time window or an
+# explicit listing verb). Counting words are deliberately excluded: "how many
+# reports are NEEDED to override" is a rule requirement, not a row count.
+RECORD_SCOPE_HINTS = (
+    "latest",
+    "newest",
+    "recent",
+    "today",
+    "yesterday",
+    "this week",
+    "this month",
+    "list ",
+    "show me",
+    "最新",       # 最新
+    "最近",       # 最近
+    "今天",       # 今天
+    "昨天",       # 昨天
+    "本周",       # 本周
+    "这周",       # 这周
+    "本月",       # 本月
+    "列出",       # 列出
+    "有哪些",  # 有哪些
+)
+
+
+# Unambiguous record-lookup signals: these describe WHICH rows to fetch,
+# unlike soft verbs (search/find/show/list) that also appear in how-to
+# phrasing. Used to veto the how-to guard.
+STRONG_DATABASE_LOOKUP_HINTS = (
+    "latest",
+    "newest",
+    "recent",
+    "count",
+    "number of",
+    "how many",
+    "today",
+    "yesterday",
+    "this week",
+    "this month",
+    "最新",       # 最新
+    "最近",       # 最近
+    "多少条",  # 多少条
+    "几条",       # 几条
+    "今天",       # 今天
+    "昨天",       # 昨天
+)
+
+HOWTO_QUESTION_PATTERNS = (
+    re.compile(r"\bhow (do|can|could|would|should) (i|you|we|one)\b"),
+    re.compile(r"\bhow to\b"),
+    re.compile(r"\bwhere (do|can|should) (i|you|we)\b"),
+    re.compile(r"\bis there a way to\b"),
+    re.compile(r"\bwhat is the way to\b"),
+)
+HOWTO_ZH_HINTS = (
+    "怎么",       # 怎么
+    "如何",       # 如何
+    "怎样",       # 怎样
+    "在哪里",  # 在哪里
+    "哪里可以",  # 哪里可以
+    "怎么才能",  # 怎么才能
+)
+# Site features a usage question can be about. Deliberately includes the
+# database entity nouns: "how do I search for posts" is documentation about
+# a feature, not a request to fetch post records.
+SITE_USAGE_DOMAIN_HINTS = (
+    "search",
+    "profile",
+    "account",
+    "message",
+    "avatar",
+    "nickname",
+    "password",
+    "notification",
+    "bookmark",
+    "collect",
+    "搜索",       # 搜索
+    "个人主页",  # 个人主页
+    "账号",       # 账号
+    "私信",       # 私信
+    "头像",       # 头像
+    "昵称",       # 昵称
+    "密码",       # 密码
+    "收藏",       # 收藏
+) + DATABASE_HINTS + KNOWLEDGE_BASE_HINTS
+
+
+def _looks_like_howto_question(question: str) -> bool:
+    """True for 'how do I ...' style questions with no record-lookup intent.
+
+    Only STRONG lookup signals veto: soft verbs like "search"/"find"/"show"
+    are part of normal how-to phrasing ("how do I search for posts"), so
+    using them as a veto would push usage questions back into the database
+    path — the exact misroute this guard exists to prevent.
+    """
+    text = (question or "").strip()
+    if not text:
+        return False
+    lowered = text.lower()
+    # "how many posts are there" is a count lookup, not a usage question.
+    if _contains_hint(lowered, STRONG_DATABASE_LOOKUP_HINTS):
+        return False
+    if re.search(r"\b(id|#)\s*\d+\b", lowered):
+        return False
+    if any(pattern.search(lowered) for pattern in HOWTO_QUESTION_PATTERNS):
+        return True
+    return _contains_hint(text, HOWTO_ZH_HINTS)
+
+
+def _looks_like_site_usage_question(question: str) -> bool:
+    """A how-to question about a site feature is documentation, not data.
+
+    Without this guard, merely naming an entity ('posts', 'comments',
+    '上报') routed usage questions into the database tool path, which then
+    queried real records and answered 'no useful data' to questions like
+    'How do I search for posts in the community?'.
+    """
+    if not _looks_like_howto_question(question):
+        return False
+    lowered = (question or "").strip().lower()
+    return _contains_hint(lowered, SITE_USAGE_DOMAIN_HINTS)
+
+
 def _has_database_lookup_intent(lowered_question: str) -> bool:
-    if any(token in lowered_question for token in DATABASE_LOOKUP_HINTS):
+    if _contains_hint(lowered_question, DATABASE_LOOKUP_HINTS):
         return True
     if re.search(r"\b(id|#)\s*\d+\b", lowered_question):
         return True
@@ -1365,8 +1610,8 @@ def _looks_like_report_submission_question(question: str) -> bool:
         return False
     if _has_database_lookup_intent(lowered):
         return False
-    has_report_domain = any(token in lowered for token in REPORT_DOMAIN_HINTS)
-    has_submission_signal = any(token in lowered for token in REPORT_SUBMISSION_HINTS)
+    has_report_domain = _contains_hint(lowered, REPORT_DOMAIN_HINTS)
+    has_submission_signal = _contains_hint(lowered, REPORT_SUBMISSION_HINTS)
     return has_report_domain and has_submission_signal
 
 
@@ -1374,9 +1619,15 @@ def _looks_like_report_rule_question(question: str) -> bool:
     lowered = (question or "").strip().lower()
     if not lowered:
         return False
-    has_report_domain = any(token in lowered for token in REPORT_DOMAIN_HINTS)
-    has_rule_signal = any(token in lowered for token in REPORT_RULE_HINTS)
-    return has_report_domain and has_rule_signal
+    has_report_domain = _contains_hint(lowered, REPORT_DOMAIN_HINTS)
+    has_rule_signal = _contains_hint(lowered, REPORT_RULE_HINTS)
+    if not (has_report_domain and has_rule_signal):
+        return False
+    # "今天有多少条上报？" counts stored rows; "需要多少条上报才能覆盖天气状态？"
+    # states a requirement. Only a concrete record scope (time window or
+    # listing verb) means the user wants data rather than documentation —
+    # counting words alone appear in both phrasings.
+    return not _contains_hint(lowered, RECORD_SCOPE_HINTS)
 
 
 def _looks_like_policy_question(question: str) -> bool:
@@ -1384,17 +1635,22 @@ def _looks_like_policy_question(question: str) -> bool:
     if not lowered:
         return False
 
-    has_policy_signal = any(token in lowered for token in POLICY_QUESTION_HINTS)
+    has_policy_signal = _contains_hint(lowered, POLICY_QUESTION_HINTS)
     starts_like_policy = bool(
         re.match(
-            r"^\s*(who can|who is allowed|can i|am i allowed|do i need to|must i|what (is|are) (the )?(policy|rules?))\b",
+            r"^\s*(who can|who is allowed|can (i|a |an |the )?(guest|guests|user|users|member|members|student|students)?\s*|am i allowed|do i need to|must i|what (is|are) (the )?(policy|rules?))\b",
             lowered,
         )
     )
     if not (has_policy_signal or starts_like_policy):
         return False
 
-    has_domain_signal = any(token in lowered for token in POLICY_DOMAIN_HINTS) or _looks_like_kb_question(
+    # Polite phrasing does not make a record lookup a policy question:
+    # "可以给我看最新的帖子吗？" scopes concrete rows despite the "可以".
+    if _contains_hint(lowered, RECORD_SCOPE_HINTS):
+        return False
+
+    has_domain_signal = _contains_hint(lowered, POLICY_DOMAIN_HINTS) or _looks_like_kb_question(
         question
     )
     return has_domain_signal
@@ -1405,13 +1661,17 @@ def _looks_like_database_question(question: str) -> bool:
     if not lowered:
         return False
 
-    has_database_signal = any(token in lowered for token in DATABASE_HINTS)
+    has_database_signal = _contains_hint(lowered, DATABASE_HINTS)
     if not has_database_signal:
         return False
 
     # Policy/rules questions should stay in KB unless there is an explicit
     # record-lookup intent (latest/list/count/id/time-window).
     if _looks_like_policy_question(question) and not _has_database_lookup_intent(lowered):
+        return False
+    # "How do I <verb> <entity>" is a usage question about a feature, not a
+    # request to fetch records of that entity.
+    if _looks_like_site_usage_question(question):
         return False
     return True
 
@@ -1420,15 +1680,15 @@ def _looks_like_kb_question(question: str) -> bool:
     lowered = (question or "").strip().lower()
     if not lowered:
         return False
-    return any(token in lowered for token in KNOWLEDGE_BASE_HINTS)
+    return _contains_hint(lowered, KNOWLEDGE_BASE_HINTS)
 
 
 def _looks_like_live_pool_decision_question(question: str) -> bool:
     lowered = (question or "").strip().lower()
     if not lowered:
         return False
-    has_domain_signal = any(token in lowered for token in LIVE_POOL_DOMAIN_HINTS)
-    has_decision_signal = any(token in lowered for token in LIVE_POOL_DECISION_HINTS)
+    has_domain_signal = _contains_hint(lowered, LIVE_POOL_DOMAIN_HINTS)
+    has_decision_signal = _contains_hint(lowered, LIVE_POOL_DECISION_HINTS)
     return has_domain_signal and has_decision_signal
 
 
@@ -1436,7 +1696,7 @@ def _looks_like_live_context_followup_question(question: str) -> bool:
     lowered = (question or "").strip().lower()
     if not lowered:
         return False
-    return any(token in lowered for token in LIVE_CONTEXT_FOLLOWUP_HINTS)
+    return _contains_hint(lowered, LIVE_CONTEXT_FOLLOWUP_HINTS)
 
 
 def _normalize_page_context_chunks(raw_context: Any) -> list[str]:
@@ -1471,8 +1731,8 @@ def _is_backend_rules_question(question: str) -> bool:
     if not lowered:
         return False
 
-    has_domain_signal = any(token in lowered for token in BACKEND_RULE_DOMAIN_HINTS)
-    has_core_signal = any(token in lowered for token in BACKEND_RULE_CORE_HINTS)
+    has_domain_signal = _contains_hint(lowered, BACKEND_RULE_DOMAIN_HINTS)
+    has_core_signal = _contains_hint(lowered, BACKEND_RULE_CORE_HINTS)
     if has_domain_signal and has_core_signal:
         return True
 
@@ -1545,6 +1805,10 @@ def _heuristic_intent(question: str) -> str:
         return INTENT_SMALL_TALK
     if _looks_like_live_pool_decision_question(question):
         return INTENT_KNOWLEDGE_BASE
+    # Follow-ups about going later / what to watch are live-status questions
+    # even without an explicit pool noun ("我30分钟后过去合适吗？").
+    if _looks_like_live_context_followup_question(question):
+        return INTENT_KNOWLEDGE_BASE
     if _is_backend_rules_question(question):
         return INTENT_KNOWLEDGE_BASE
     if _looks_like_report_submission_question(question):
@@ -1552,6 +1816,10 @@ def _heuristic_intent(question: str) -> str:
     if _looks_like_report_rule_question(question):
         return INTENT_KNOWLEDGE_BASE
     if _looks_like_policy_question(question):
+        return INTENT_KNOWLEDGE_BASE
+    # Usage/how-to questions are documentation, even when they name a
+    # database entity ("how do I search for posts").
+    if _looks_like_site_usage_question(question):
         return INTENT_KNOWLEDGE_BASE
     if _looks_like_database_question(question):
         return INTENT_DATABASE
@@ -2067,6 +2335,58 @@ def _select_near_threshold_support_docs(
     return [doc for doc, _overlap, _score in ordered[:desired]]
 
 
+QUESTION_TAIL_RE = re.compile(
+    r"(?:^|\n)\s*(?:#{2,4}\s*)?(?:Q\s*[:：]|问\s*[:：])?[^\n]*[?？]\s*$"
+)
+ANSWER_HEAD_RE = re.compile(r"^\s*(?:\*\*)?(?:A\s*[:：]|答\s*[:：])")
+
+
+def _chunk_ends_on_question(text: str) -> bool:
+    """True when a chunk trails off on a question with no answer body."""
+    value = (text or "").strip()
+    if not value:
+        return False
+    return bool(QUESTION_TAIL_RE.search(value))
+
+
+def _chunk_starts_with_answer(text: str) -> bool:
+    return bool(ANSWER_HEAD_RE.match((text or "").lstrip()))
+
+
+def _select_answer_completion_docs(
+    matched: list[tuple[Any, float | None]],
+    *,
+    selected_texts: list[str],
+    max_extra_docs: int = 2,
+) -> list[Any]:
+    """Recover answers for selected chunks that end on a question heading.
+
+    Markdown FAQ files chunked by size can place "### Q: ..." at the tail of
+    one chunk and "**A:** ..." at the head of the next. The question chunk
+    then scores highest for the user's query while containing no answer at
+    all. This pulls in same-source candidates that begin with an answer.
+    """
+    if max_extra_docs <= 0 or not selected_texts:
+        return []
+
+    if not any(_chunk_ends_on_question(text) for text in selected_texts):
+        return []
+
+    selected_lookup = set(selected_texts)
+    extras: list[Any] = []
+    for doc, _score in matched:
+        text = (getattr(doc, "page_content", "") or "").strip()
+        if not text or text in selected_lookup:
+            continue
+        if not _chunk_starts_with_answer(text):
+            continue
+        extras.append(doc)
+        selected_lookup.add(text)
+        if len(extras) >= max_extra_docs:
+            break
+    return extras
+
+
 def _build_vector_store(
     *,
     supabase_url: str,
@@ -2125,6 +2445,26 @@ def _safe_iso(value: Any) -> str:
     return str(value)
 
 
+def _display_name(user: Any) -> str:
+    """Public display name for a user.
+
+    Always prefers the profile nickname over the internal username so that
+    system accounts (bot_*) are never surfaced verbatim to end users.
+    """
+    if user is None:
+        return "Unknown"
+    nickname = str(getattr(user, "nickname", "") or "").strip()
+    if nickname:
+        return nickname
+    username = str(getattr(user, "username", "") or "").strip()
+    if not username:
+        return "Unknown"
+    if username.startswith("bot_"):
+        # Fallback for a seeded account whose nickname is missing.
+        return username[4:].replace("_", " ").title()
+    return username
+
+
 def _safe_text(value: Any, *, max_chars: int = 220) -> str:
     text = str(value or "").strip()
     if len(text) <= max_chars:
@@ -2151,7 +2491,7 @@ def _db_get_latest_posts(limit: int = 5, category: str = "") -> str:
     for post in posts:
         post_id = int(getattr(post, "id", 0) or 0)
         source = f"app://community/post/{post_id}" if post_id else ""
-        author = getattr(getattr(post, "author", None), "username", "") or ""
+        author = _display_name(getattr(post, "author", None))
         like_count = post.likes.count() if hasattr(post, "likes") else 0
         comment_count = (
             post.comments.filter_by(is_deleted=False).count() if hasattr(post, "comments") else 0
@@ -2243,7 +2583,7 @@ def _db_get_post_detail(post_id: int) -> str:
             ensure_ascii=False,
         )
 
-    author = getattr(getattr(post, "author", None), "username", "") or ""
+    author = _display_name(getattr(post, "author", None))
     like_count = post.likes.count() if hasattr(post, "likes") else 0
     comment_count = (
         post.comments.filter_by(is_deleted=False).count() if hasattr(post, "comments") else 0
@@ -2303,7 +2643,7 @@ def _db_get_recent_pool_reports(limit: int = 10) -> str:
     for report in reports:
         report_id = int(getattr(report, "id", 0) or 0)
         source = f"app://pool-report/{report_id}" if report_id else ""
-        user_name = getattr(getattr(report, "user", None), "username", "") or ""
+        user_name = _display_name(getattr(report, "user", None))
         item = {
             "id": report_id,
             "status": str(getattr(report, "status", "") or ""),
@@ -2592,10 +2932,18 @@ def _build_graph(
         is_backend_rules = _is_backend_rules_question(question) or _is_backend_rules_question(
             original_question
         )
-        context: list[str] = list(page_context)
+        # CRITICAL: keep retrieved KB chunks in their OWN list. Live page
+        # context is always present in production (homepage status lines), so
+        # measuring retrieval quality on a merged list made every recovery
+        # heuristic below permanently dead — the classic symptom being a KB
+        # chunk that holds a "### Q:" heading whose "**A:**" landed in the
+        # next chunk, answered with "I don't know". All thin-context checks
+        # must therefore look at kb_context, never at the merged context.
+        kb_context: list[str] = []
         sources: list[str] = ["app://homepage/live-status"] if page_context else []
         backend_priority_docs: list[Document] = []
         question_en = ""
+        min_kb_chunks = min(2, max(1, top_k))
 
         if is_backend_rules:
             # Keep backend snapshots as fallback context for backend-rule questions.
@@ -2604,12 +2952,23 @@ def _build_graph(
 
         matched = _search_with_optional_scores(vector_store, retrieval_question, top_k)
 
-        # Second chance for non-English questions: when there is no page
-        # context and nothing clears the score threshold, translate the query
-        # once (QA model, bounded) and merge the English-query matches in.
-        # Most KB chunks are English, so this recovers questions the
-        # multilingual embedding missed.
-        if input_language != "en" and not context:
+        # Second chance for non-English questions: when nothing clears the
+        # score threshold, translate the query once (QA model, bounded) and
+        # merge the English-query matches in. Most KB chunks are English, so
+        # this recovers questions the multilingual embedding missed.
+        #
+        # Skipped for live status/decision questions that already carry page
+        # context: those are answered from the live homepage signals, so an
+        # extra translation round-trip would only add latency. This is a
+        # narrow, question-type-based guard — NOT "page context exists",
+        # which is what previously disabled every recovery path here.
+        answered_from_live_context = bool(page_context) and (
+            _looks_like_live_pool_decision_question(question)
+            or _looks_like_live_pool_decision_question(original_question)
+            or _looks_like_live_context_followup_question(question)
+            or _looks_like_live_context_followup_question(original_question)
+        )
+        if input_language != "en" and not answered_from_live_context:
             has_confident_match = any(
                 score is not None and score >= min_score for _doc, score in matched
             )
@@ -2632,52 +2991,69 @@ def _build_graph(
         for doc, score in matched:
             if score is not None and score < min_score:
                 continue
-            _append_doc_to_context(doc, context, sources)
+            _append_doc_to_context(doc, kb_context, sources)
 
         # If thresholding leaves only a thin context, include a couple of
         # near-threshold chunks (prefer same source) to recover split Q/A pairs.
-        if context and len(context) < min(2, max(1, top_k)):
+        if kb_context and len(kb_context) < min_kb_chunks:
             for doc in _select_near_threshold_support_docs(
                 matched,
                 min_score=min_score,
                 top_k=top_k,
                 selected_sources=sources,
-                max_extra_docs=min(2, max(0, top_k - len(context))),
+                max_extra_docs=min(2, max(0, top_k - len(kb_context))),
                 query_text=retrieval_question,
             ):
-                _append_doc_to_context(doc, context, sources)
+                _append_doc_to_context(doc, kb_context, sources)
 
         # If all candidates were filtered by score, keep only a narrow,
         # near-best subset to reduce noisy mixed context.
-        if not context and matched:
+        if not kb_context and matched:
             for doc in _select_low_confidence_fallback_docs(
                 matched,
                 top_k=top_k,
                 query_text=retrieval_question,
             ):
-                _append_doc_to_context(doc, context, sources)
+                _append_doc_to_context(doc, kb_context, sources)
 
-        if context and len(context) < min(2, max(1, top_k)):
+        if kb_context and len(kb_context) < min_kb_chunks:
             for doc in _select_near_threshold_support_docs(
                 matched,
                 min_score=min_score,
                 top_k=top_k,
                 selected_sources=sources,
-                max_extra_docs=min(2, max(0, top_k - len(context))),
+                max_extra_docs=min(2, max(0, top_k - len(kb_context))),
                 query_text=retrieval_question,
             ):
-                _append_doc_to_context(doc, context, sources)
+                _append_doc_to_context(doc, kb_context, sources)
 
-        if not context and backend_priority_docs:
+        # Adjacent-chunk repair: when a selected chunk ends on a question
+        # heading with no answer body, pull in same-source neighbours that
+        # start with an answer. Defends against any future chunking that
+        # splits a Q/A pair, independent of the splitter used at sync time.
+        if kb_context:
+            for doc in _select_answer_completion_docs(
+                matched,
+                selected_texts=kb_context,
+                max_extra_docs=2,
+            ):
+                _append_doc_to_context(doc, kb_context, sources)
+
+        if not kb_context and backend_priority_docs:
             for doc in backend_priority_docs:
-                _append_doc_to_context(doc, context, sources)
-                if len(context) >= top_k:
+                _append_doc_to_context(doc, kb_context, sources)
+                if len(kb_context) >= top_k:
                     break
+
+        # Live page context first (it is the freshest, most specific signal),
+        # then the retrieved knowledge chunks.
+        context = list(page_context) + kb_context
 
         return {
             "mode": INTENT_KNOWLEDGE_BASE,
             "context": context,
             "sources": sources,
+            "kb_chunks": len(kb_context),
             "question_en": question_en,
         }
 

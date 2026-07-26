@@ -166,11 +166,17 @@ def create_app(config_name=None):
             db.session.commit()
             app.logger.info('Auto-migration applied for bot account schema.')
 
+    def ensure_selftest_table():
+        from .models.selftest import ChatbotSelftestRun
+
+        ChatbotSelftestRun.__table__.create(bind=db.engine, checkfirst=True)
+
     with app.app_context():
         try:
             ensure_image_columns()
             ensure_lightning_history_table()
             ensure_bot_schema()
+            ensure_selftest_table()
         except Exception:
             db.session.rollback()
             app.logger.exception('Failed to auto-migrate database schema.')

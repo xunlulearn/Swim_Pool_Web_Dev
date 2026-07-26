@@ -224,3 +224,28 @@ If `SupabaseVectorStore` methods fail due SDK version mismatch, fallback to dire
 - **Static answers localized**: capability/unknown/fallback replies have Chinese and English variants chosen by input language; a localize safety net translates only if the model ignores the language instruction.
 - **Rate limits**: per-user burst limit (default 8 messages/min, in-memory) and daily cap (default 80/day via the Supabase conversation log, fail-open). Both configurable: `CHATBOT_BURST_LIMIT_PER_MINUTE`, `CHATBOT_DAILY_MESSAGE_LIMIT`. Exceeding returns HTTP 429 with a bilingual message.
 - Typical LLM round-trips per message: was 4-8 (translate-in via free 1.2B thinking model, intent, QA, translate-out, per-question quick-question translation), now 1 for most questions (QA only), 2 when lazy retrieval translation or the intent tie-breaker fires.
+
+## 12. Self-Test Battery (2026-07)
+
+- 14 curated questions (zh+en) covering every route kind (knowledge_base, database, capability, small_talk, fallback) run through the REAL production pipeline.
+- Trigger: GitHub Actions workflow `Chatbot Selftest` (workflow_dispatch, one click). It calls `GET /api/cron/chatbot-selftest?run=<key>&index=<n>` (CRON_SECRET auth) once per question, so each serverless request stays short.
+- Per-question diagnostics recorded: resolved intent vs expected route, mode, retrieved context size, sources, translated retrieval query, answer + answer language, latency ms, errors.
+- Public read-only report: `GET /api/chatbot-selftest/latest` (no auth; contains only curated test Q&A, no user data). Use it for regression checks after every chatbot change.
+
+## 13. Accuracy Root Causes Fixed (2026-07-26 live test)
+
+Live testing with 12 production questions surfaced 2 wrong answers. Each traced to a distinct systemic cause; all are now covered by regression tests.
+
+**A. Retrieval recovery paths were permanently dead.** `retrieve_node` seeded its `context` list with the live homepage page context, then every retrieval-quality heuristic measured that merged list (`if not context`, `len(context) < 2`). Page context is always present in production, so five recovery mechanisms — split-Q/A support chunks, low-confidence fallback, backend-snapshot fallback, and the translated-retrieval retry — never executed once. Fix: retrieved chunks live in their own `kb_context`; all heuristics measure that, and the final prompt is `page_context + kb_context`.
+
+**B. Markdown chunking split Q from A.** With `chunk_size=500`, a `### Q:` heading landed at the tail of one chunk and its `**A:**` body at the head of the next. The question-only chunk then scored highest for the user's query while containing no answer. Fix: `chunk_size=1200` with Q&A-boundary separators (`\n---\n`, headings) — verified 0 split Q&A chunks across the whole knowledge base — plus a runtime `_select_answer_completion_docs` repair that pulls in an answer chunk whenever a selected chunk ends on a question. `CHUNK_STRATEGY_VERSION` participates in `doc_hash`, so changing chunking re-indexes automatically (content hash alone would not notice).
+
+**C. Usage questions were routed to the database.** Merely naming an entity ("posts") routed how-to questions into record lookup: "How do I search for posts in the community?" queried real post rows and answered "no information". Fix: `_looks_like_site_usage_question` — a how-to pattern plus a site-feature noun, with only STRONG record-scope signals vetoing.
+
+**D. Hint matching had no word boundaries.** Every hint list used raw substring matching, so "api" fired inside "c-api-tal" and "dev" inside "develop", routing arbitrary out-of-scope questions into site knowledge. Fix: `_contains_hint` applies word boundaries (plus optional plural suffix) to ASCII hints and keeps substring semantics for CJK.
+
+**E. Decision lists were English-only.** Policy, lookup-intent, and knowledge hints had no Chinese entries, so Chinese questions bypassed guards their English equivalents received. Fix: bilingual parity across all hint lists, enforced by a test that fails if any decision list loses one language.
+
+**F. Rule vs count confusion.** "How many reports are NEEDED to override" (a requirement) and "how many reports today" (a row count) both matched. Fix: `RECORD_SCOPE_HINTS` (time windows + listing verbs, no counting words) is what distinguishes a lookup.
+
+Regression coverage: `tests/test_chatbot_routing_matrix.py` (64-case bilingual routing matrix + hint-matching semantics) and `tests/test_chatbot_retrieval_recovery.py` (each recovery path must survive page context).

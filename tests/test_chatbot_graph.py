@@ -346,6 +346,8 @@ def test_graph_uses_homepage_context_for_live_pool_decision(monkeypatch):
 
     assert "reasonable to go" in result["answer"]
     assert result["sources"] == ["app://homepage/live-status"]
+    # Live-decision questions are answered from page context, so no
+    # translation retry is spent: the first model call is the answer itself.
     assert "Current homepage status: OPEN." in llm.calls[0][-1].content
 
 
