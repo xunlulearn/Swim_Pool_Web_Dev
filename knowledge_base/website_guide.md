@@ -61,8 +61,8 @@
 
 ### Q: How long do reports stay visible on the homepage?
 
-**A:** The homepage shows the latest 10 reports from the past **24 hours**. Reports older than 2 hours are visually dimmed; anything older than 24 hours is hidden so stale reports cannot be mistaken for the current situation.
-中文：首页展示过去 **24 小时**内最新的 10 条上报。超过 2 小时的会变灰，超过 24 小时的不再显示，避免误导。
+**A:** The homepage shows the latest 10 report rows by submission time. Repeated users or statuses are kept as separate records. Reports older than 2 hours are visually dimmed to flag that they may be stale.
+中文：首页按提交时间倒序展示最新的 10 条上报，不按用户或状态去重，重复上报会作为独立记录显示。超过 2 小时的会变灰，以提示可能过时。
 
 ---
 

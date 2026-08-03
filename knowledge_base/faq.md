@@ -89,7 +89,7 @@
 
 ### Q: What is "Manual Report" and why does it matter?
 
-**A:** Manual Report is a crowdsourcing feature that helps bridge the gap caused by weather data delays. Users can click the "+ Report" button on the homepage to report whether the pool is currently **Open** or **Closed**. The latest 10 reports from the past 24 hours are displayed below the status panel. When **5 different verified users** unanimously report the same status within **10 minutes**, the system adopts that consensus and **overrides the automated weather judgment**.
+**A:** Manual Report is a crowdsourcing feature that helps bridge the gap caused by weather data delays. Users can click the "+ Report" button on the homepage to report whether the pool is currently **Open** or **Closed**. The latest 10 report rows by submission time are displayed below the status panel, and repeated reports remain visible as separate records. When **5 different verified users** unanimously report the same status within **10 minutes**, the system adopts that consensus and **overrides the automated weather judgment**.
 
 ---
 
@@ -121,7 +121,7 @@ Click the "+ Report" button, select the appropriate status from the dropdown, an
 
 ### Q: How long before a report expires?
 
-**A:** Reports older than **2 hours** are automatically dimmed on the frontend (reduced opacity and saturation) to indicate they may be outdated. The page shows only the latest 10 reports from the past 24 hours; anything older is hidden entirely.
+**A:** Reports older than **2 hours** are automatically dimmed on the frontend (reduced opacity and saturation) to indicate they may be outdated. The page still shows the latest 10 report rows by submission time, including repeated reports.
 
 ---
 

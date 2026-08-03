@@ -52,29 +52,46 @@ def test_live_status_reports_use_profile_display_name(client, app):
     assert response.get_json()[0]["user"] == "Gabriel Lee"
 
 
-def test_live_status_hides_reports_older_than_24_hours(client, app):
+def test_live_status_returns_latest_ten_rows_including_duplicates(client, app):
     with app.app_context():
-        _add_report(
-            User(
-                email="old@example.com",
-                username="old_reporter",
-                is_verified=True,
-            ),
-            created_at=datetime.utcnow() - timedelta(hours=30),
+        user = User(
+            email="repeat_reporter@example.com",
+            username="repeat_reporter",
+            is_verified=True,
         )
-        _add_report(
-            User(
-                email="fresh@example.com",
-                username="fresh_reporter",
-                is_verified=True,
-            ),
-            created_at=datetime.utcnow() - timedelta(hours=2),
+        db.session.add(user)
+        db.session.flush()
+
+        now = datetime.utcnow()
+        reports = [
+            PoolReport(
+                status="Open" if index % 2 else "Closed",
+                user_id=user.id,
+                created_at=now - timedelta(hours=index),
+            )
+            for index in range(9)
+        ]
+        old_report = PoolReport(
             status="Open",
+            user_id=user.id,
+            created_at=now - timedelta(hours=30),
         )
+        excluded_oldest_report = PoolReport(
+            status="Closed",
+            user_id=user.id,
+            created_at=now - timedelta(hours=31),
+        )
+        db.session.add_all([*reports, old_report, excluded_oldest_report])
+        db.session.commit()
+        old_report_id = old_report.id
+        excluded_oldest_report_id = excluded_oldest_report.id
 
     response = client.get("/api/live-status/")
 
     assert response.status_code == 200
     payload = response.get_json()
-    assert [row["user"] for row in payload] == ["fresh_reporter"]
-    assert payload[0]["status"] == "Open"
+    assert len(payload) == 10
+    returned_ids = [row["id"] for row in payload]
+    assert old_report_id in returned_ids
+    assert excluded_oldest_report_id not in returned_ids
+    assert all(row["user"] == "repeat_reporter" for row in payload)

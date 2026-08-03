@@ -96,7 +96,7 @@ def test_split_qa_chunk_pulls_in_its_answer_chunk(monkeypatch):
     """The exact production failure: question-only chunk scores highest."""
     question_chunk = Document(
         page_content=(
-            '**A:** The homepage shows the latest 10 reports from the past 24 hours.\n\n'
+            '**A:** The homepage shows the latest 10 report rows by submission time.\n\n'
             '---\n\n'
             '### Q: How do I search for posts in the community?'
         ),

@@ -392,11 +392,11 @@ HARD_KB_ENTRIES: list[dict] = [
         "topic": ("上报", "显示", "report", "visible", "列表", "feed"),
         "zh": {
             "q": "上报会在首页显示多久？",
-            "a": "首页展示过去 24 小时内最新的 10 条上报。超过 2 小时的会显示为灰色以提示可能过时，超过 24 小时的完全不再显示，避免隔夜的旧上报被误认为当前状况。",
+            "a": "首页按提交时间倒序展示最新的 10 条上报，不按用户或状态去重；重复上报会作为独立记录逐条显示。超过 2 小时的会显示为灰色，以提示可能过时。",
         },
         "en": {
             "q": "How long do reports stay visible on the homepage?",
-            "a": "The homepage shows the latest 10 reports from the past 24 hours. Reports older than 2 hours are dimmed to flag that they may be stale, and anything older than 24 hours is hidden entirely so overnight reports are not mistaken for the current situation.",
+            "a": "The homepage shows the latest 10 report rows by submission time without deduplicating users or statuses, so repeated reports remain visible as separate records. Reports older than 2 hours are dimmed to flag that they may be stale.",
         },
         "variants": (
             "上报显示多久", "为什么有的上报是灰色的", "上报会保留多长时间", "首页显示几条上报",

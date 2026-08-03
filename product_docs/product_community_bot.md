@@ -30,7 +30,7 @@ Keep the community feed and the manual-report feed looking alive while the real 
 
 ## Integrity guarantees
 - `weather_engine._get_community_consensus()` excludes `is_bot` users: bot reports can neither form nor break the human consensus that overrides weather status.
-- The homepage live feed only shows reports from the last 24 hours, so overnight-closed reports can never dominate the next day's view.
+- The homepage live feed shows the latest 10 report rows by submission time. Repeated reports remain visible as separate activity, while reports older than 2 hours are dimmed in the frontend.
 
 ## Ops
 - GitHub Actions workflow `community-bot-posts.yml` runs only during SGT operating hours (UTC 23:00–13:30); the app-side gate remains the source of truth.
