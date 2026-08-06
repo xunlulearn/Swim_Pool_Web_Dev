@@ -1,5 +1,5 @@
 (function () {
-    const REFRESH_INTERVAL_MS = 60000;
+    const REFRESH_INTERVAL_MS = 120000;
 
     if (typeof window.registerWeatherRefreshHandler === 'function') {
         return;
@@ -19,12 +19,31 @@
     }
 
     function ensureTickerStarted() {
-        if (timerId !== null) {
+        if (timerId !== null || document.hidden) {
             return;
         }
 
         timerId = window.setInterval(invokeAllCallbacks, REFRESH_INTERVAL_MS);
         window.setTimeout(invokeAllCallbacks, 0);
+    }
+
+    function stopTicker() {
+        if (timerId === null) {
+            return;
+        }
+
+        window.clearInterval(timerId);
+        timerId = null;
+    }
+
+    function handleVisibilityChange() {
+        if (document.hidden) {
+            stopTicker();
+            return;
+        }
+
+        ensureTickerStarted();
+        invokeAllCallbacks();
     }
 
     window.registerWeatherRefreshHandler = function registerWeatherRefreshHandler(callback) {
@@ -40,13 +59,13 @@
         };
     };
 
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     window.addEventListener(
         'beforeunload',
         () => {
-            if (timerId !== null) {
-                window.clearInterval(timerId);
-                timerId = null;
-            }
+            stopTicker();
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
             callbacks.clear();
         },
         { once: true }

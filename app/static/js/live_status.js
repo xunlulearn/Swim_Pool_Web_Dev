@@ -221,6 +221,38 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    const REFRESH_INTERVAL_MS = 120000;
+    let refreshTimerId = null;
+
+    function startPolling() {
+        if (refreshTimerId !== null || document.hidden) {
+            return;
+        }
+        refreshTimerId = window.setInterval(fetchReports, REFRESH_INTERVAL_MS);
+    }
+
+    function stopPolling() {
+        if (refreshTimerId === null) {
+            return;
+        }
+        window.clearInterval(refreshTimerId);
+        refreshTimerId = null;
+    }
+
+    function handleVisibilityChange() {
+        if (document.hidden) {
+            stopPolling();
+            return;
+        }
+        fetchReports();
+        startPolling();
+    }
+
     fetchReports();
-    setInterval(fetchReports, 60000);
+    startPolling();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', () => {
+        stopPolling();
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }, { once: true });
 });
