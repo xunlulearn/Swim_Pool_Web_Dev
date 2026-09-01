@@ -1,4 +1,7 @@
 import json
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -63,6 +66,14 @@ def test_classify_intent_falls_back_to_heuristics_on_invalid_json():
         _IntentLLM("not json"),
     )
     assert intent == graph_module.INTENT_SMALL_TALK
+
+
+def test_explicit_out_of_scope_skips_intent_model():
+    intent = graph_module._classify_intent(
+        "请帮我预测明天比特币价格。",
+        _FailingLLM("intent model should not be called"),
+    )
+    assert intent == graph_module.INTENT_FALLBACK
 
 
 def test_classify_intent_routes_site_contact_query_to_knowledge_base():
@@ -820,7 +831,31 @@ def test_graph_fallback_path_returns_fallback_reply():
     assert "outside my supported scope" in result["answer"]
     assert result.get("sources", []) == []
     assert len(result["quick_questions"]) == 3
-    assert set(result["quick_questions"]).issubset(set(graph_module._load_faq_questions()))
+
+
+def test_explicit_out_of_scope_fallback_skips_vector_retrieval(monkeypatch):
+    monkeypatch.setattr(
+        graph_module,
+        "_search_with_optional_scores",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("explicit out-of-scope fallback must not retrieve")
+        ),
+    )
+    rag_app = graph_module._build_graph(
+        llm=_FailingLLM("model should not be called"),
+        intent_llm=_FailingLLM("intent model should not be called"),
+        vector_store=object(),
+        top_k=3,
+        min_score=0.65,
+        max_context_chars=4000,
+        db_tool_max_calls=3,
+    )
+
+    result = rag_app.invoke({"question": "请预测明天比特币价格"})
+    assert "不在我的支持范围" in result["answer"]
+    assert len(result["quick_questions"]) == 3
+    canonical_zh = {hard_kb.question_for(entry, "zh") for entry in hard_kb.HARD_KB_ENTRIES}
+    assert set(result["quick_questions"]).issubset(canonical_zh)
 
 
 def test_search_with_optional_scores_falls_through_when_first_method_returns_empty():
@@ -886,6 +921,56 @@ def test_search_with_optional_scores_retries_rpc_when_first_result_is_empty():
     assert len(results) == 1
     assert results[0][0].page_content == "retried doc"
     assert results[0][1] == 0.7
+
+
+def test_search_with_optional_scores_serializes_shared_vector_client():
+    active = 0
+    max_active = 0
+    probe_lock = threading.Lock()
+
+    class _ProbeStore:
+        def similarity_search_with_relevance_scores(self, _question, k=3):
+            nonlocal active, max_active
+            with probe_lock:
+                active += 1
+                max_active = max(max_active, active)
+            time.sleep(0.02)
+            with probe_lock:
+                active -= 1
+            return []
+
+    store = _ProbeStore()
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(
+            executor.map(
+                lambda value: graph_module._search_with_optional_scores(store, value, 3),
+                ["q1", "q2", "q3", "q4"],
+            )
+        )
+
+    assert results == [[], [], [], []]
+    assert max_active == 1
+
+
+def test_search_with_optional_scores_degrades_on_rpc_disconnect():
+    class _FakeEmbeddings:
+        def embed_query(self, _question):
+            return [0.1, 0.2]
+
+    class _FailingRPC:
+        def execute(self):
+            raise RuntimeError("server disconnected")
+
+    class _Client:
+        def rpc(self, _name, _params):
+            return _FailingRPC()
+
+    class _Store:
+        embeddings = _FakeEmbeddings()
+        _client = _Client()
+        query_name = "match_documents"
+
+    assert graph_module._search_with_optional_scores(_Store(), "pool hours", 3) == []
 
 
 def test_run_database_tool_use_executes_tool_call_and_summarizes(monkeypatch):

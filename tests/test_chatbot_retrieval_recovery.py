@@ -208,8 +208,8 @@ def test_chinese_kb_question_still_gets_translation_retry_with_page_context(monk
     assert 'consensus rule needs 5 reports' in llm.calls[-1][-1].content
 
 
-def test_live_decision_question_skips_translation_retry(monkeypatch):
-    """Latency guard: live questions are answered from page context."""
+def test_live_decision_question_skips_vector_and_translation_retry(monkeypatch):
+    """Latency guard: live questions are answered from page context only."""
     searches = []
 
     def _fake_search(_store, question, _k):
@@ -239,7 +239,7 @@ def test_live_decision_question_skips_translation_retry(monkeypatch):
         'page_context': PAGE_CONTEXT,
     })
 
-    assert len(searches) == 1
+    assert searches == []
     assert 'Current homepage pool status' in llm.calls[0][-1].content
     assert result['sources'] == ['app://homepage/live-status']
 

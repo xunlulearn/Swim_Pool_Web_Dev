@@ -1,0 +1,14 @@
+.env
+.venv/
+.git/
+.vercel/
+__pycache__/
+*.pyc
+instance/
+logs/
+tests/
+docs/plans/
+chatbot_evaluation*.json
+chatbot_fix*.json
+chatbot_*report.md
+remote_main*.json

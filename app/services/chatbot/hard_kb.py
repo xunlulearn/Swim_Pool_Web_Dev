@@ -49,6 +49,7 @@ HARD_KB_ENTRIES: list[dict] = [
         "variants": (
             "闪电之后多久可以重新开放", "雷电关闭要等多久", "打雷后多久开放", "闪电冷却时间多长",
             "雷电后多长时间重新开放", "闪电关闭后多长时间会重新开放",
+            "闪电离开15公里范围后能马上重开吗",
             "lightning cooldown duration", "how long is the lightning cooldown",
             "when does the pool reopen after lightning", "how long does lightning close the pool",
         ),
@@ -58,14 +59,16 @@ HARD_KB_ENTRIES: list[dict] = [
         "topic": ("闪电", "雷电", "lightning", "公里", "km", "距离", "distance"),
         "zh": {
             "q": "闪电在多少公里内泳池会关闭？",
-            "a": "当监测到最近的闪电落点距离 NTU SRC 泳池 15 公里以内时，系统会判定为关闭（红色）。距离使用 Haversine 大圆距离公式计算，地球半径取 6371 公里。",
+            "a": "当监测到最近的闪电落点距离 NTU SRC 泳池 15 公里以内时，系统会判定为关闭（红色），救生员会鸣哨要求所有人离水，并从最后一次近距离闪电起进入 45 分钟冷却期。距离使用 Haversine 大圆距离公式计算，地球半径取 6371 公里；现场请服从救生员指示。",
         },
         "en": {
             "q": "Within how many kilometres does lightning close the pool?",
-            "a": "The pool is marked CLOSED (red) when the nearest detected strike is within 15 km of NTU SRC. Distance is computed with the Haversine great-circle formula using an Earth radius of 6,371 km.",
+            "a": "The pool is marked CLOSED (red) when the nearest detected strike is within 15 km of NTU SRC. Lifeguards whistle everyone out of the water, followed by a 45-minute cooldown from the last close strike. Distance is computed with the Haversine great-circle formula using an Earth radius of 6,371 km; always follow the onsite lifeguard.",
         },
         "variants": (
             "闪电多远会关闭泳池", "多少公里内的闪电会导致关闭", "闪电关闭的距离阈值是多少",
+            "15公里内出现闪电会怎样", "最近闪电距离是用什么公式算的",
+            "雷暴时泳池如何疏散",
             "lightning distance threshold", "how close does lightning have to be to close the pool",
             "what is the lightning closure distance",
         ),
@@ -83,6 +86,8 @@ HARD_KB_ENTRIES: list[dict] = [
         },
         "variants": (
             "下雨泳池会关闭吗", "降雨多大会关闭泳池", "雨天泳池状态怎么算", "大雨冷却多久",
+            "暴雨结束后要等多久才能重开",
+            "暴雨达到什么程度会触发关闭",
             "heavy rain closure rule", "rainfall threshold for closing the pool",
             "does rain close the pool", "how long is the rain cooldown",
         ),
@@ -117,8 +122,25 @@ HARD_KB_ENTRIES: list[dict] = [
         },
         "variants": (
             "泳池状态怎么算出来的", "开放关闭的判断逻辑", "状态判定优先级是什么", "系统怎么决定开放还是关闭",
+            "系统怎么判断泳池是开放还是关闭",
             "how is pool status determined", "what is the status decision logic",
             "status priority order",
+        ),
+    },
+    {
+        "id": "status-sunny-closed",
+        "topic": ("晴天", "关闭", "closed", "sunny", "looks clear", "状态"),
+        "zh": {
+            "q": "为什么看起来是晴天，网页却显示关闭？",
+            "a": "可能原因包括：此前闪电或暴雨触发的 45/30 分钟冷却期尚未结束；15 公里内有远处闪电但现场看不到；NEA 数据有 1–3 分钟延迟；5 位不同用户形成了关闭共识；或当前已超出开放时段。请查看状态卡中的具体原因，并始终服从现场救生员。",
+        },
+        "en": {
+            "q": "Why does the site show closed when it looks sunny?",
+            "a": "Possible reasons include an unfinished 45/30-minute cooldown from earlier lightning or heavy rain, distant lightning within 15 km that is not visible onsite, NEA's 1–3 minute delay, a five-user closed consensus, or being outside operating hours. Check the status card's reason and always follow the onsite lifeguard.",
+        },
+        "variants": (
+            "为什么外面看起来晴天网页却显示关闭", "晴天为什么泳池关闭", "天气很好为什么显示关闭",
+            "why is the pool closed when it is sunny", "site says closed but weather looks clear",
         ),
     },
     {
@@ -160,11 +182,11 @@ HARD_KB_ENTRIES: list[dict] = [
         "topic": ("最近", "闪电", "距离", "nearest", "lightning", "distance"),
         "zh": {
             "q": "首页的「最近闪电」是什么意思？",
-            "a": "指最新一批 NEA 闪电数据中，距离 NTU SRC 泳池最近的一次落点的直线距离（公里）。当距离超过 15 公里时页面显示「>15km」表示安全；小于等于 15 公里则显示具体距离并触发关闭。",
+            "a": "指最新一批 NEA 闪电数据中，距离 NTU SRC 泳池最近的一次落点的直线距离（公里）。距离使用 Haversine 大圆距离公式计算，地球半径取 6371 公里。当距离超过 15 公里时页面显示「>15km」表示安全；小于等于 15 公里则显示具体距离并触发关闭。",
         },
         "en": {
             "q": "What does 'Nearest Lightning' on the homepage mean?",
-            "a": "It is the straight-line distance in km from the closest strike in the latest NEA snapshot to the NTU SRC pool. Above 15 km the page shows '>15km' (safe); at or below 15 km it shows the actual distance and triggers a closure.",
+            "a": "It is the straight-line distance in km from the closest strike in the latest NEA snapshot to the NTU SRC pool, calculated with the Haversine great-circle formula using an Earth radius of 6,371 km. Above 15 km the page shows '>15km' (safe); at or below 15 km it shows the actual distance and triggers a closure.",
         },
         "variants": (
             "最近闪电怎么算", "nearest lightning 是什么", "最近闪电距离含义",
@@ -232,6 +254,7 @@ HARD_KB_ENTRIES: list[dict] = [
         },
         "variants": (
             "雷达图怎么看", "雷达圈代表多少公里", "radar 显示什么",
+            "雷达图覆盖泳池周围多大范围",
             "what do the radar rings mean", "how to read the radar",
         ),
     },
@@ -267,6 +290,7 @@ HARD_KB_ENTRIES: list[dict] = [
         },
         "variants": (
             "周末几点开门", "公共假期开放时间", "周六周日几点开放", "假期泳池几点开",
+            "周末泳池营业时间是什么",
             "weekend opening hours", "public holiday opening hours",
             "what time does the pool open on sunday", "when does the pool close on weekends",
         ),
@@ -284,6 +308,7 @@ HARD_KB_ENTRIES: list[dict] = [
         },
         "variants": (
             "为什么显示非运营时间", "超出开放时段是什么意思", "为什么会显示超出开放时段",
+            "非营业时间天气很好状态会显示开放吗",
             "why does it say outside operating hours", "what does outside operating hours mean",
         ),
     },
@@ -300,6 +325,7 @@ HARD_KB_ENTRIES: list[dict] = [
         },
         "variants": (
             "假期开放时间和周末一样吗", "公共假期泳池开放吗", "节假日时刻表",
+            "新加坡公共假期按什么营业时间",
             "are public holidays the same as weekends", "is the pool open on public holidays",
         ),
     },
@@ -335,6 +361,38 @@ HARD_KB_ENTRIES: list[dict] = [
             "what timezone is used", "are times in singapore time",
         ),
     },
+    {
+        "id": "pool-entry",
+        "topic": ("位置", "哪里", "地址", "免费", "付费", "证件", "ntu pass", "location", "where", "free", "cost", "entry", "pass"),
+        "zh": {
+            "q": "NTU 游泳池在哪里，进入需要什么？",
+            "a": "NTU 游泳池位于 Sports & Recreation Centre（SRC，体育与康乐中心），坐标约为 1.349384, 103.687755。泳池免费使用，但进入时需要在入口刷有效的 NTU Pass。",
+        },
+        "en": {
+            "q": "Where is the NTU pool and what do I need to enter?",
+            "a": "The NTU pool is at the Sports & Recreation Centre (SRC), around 1.349384, 103.687755. It is free to use, but you need to tap a valid NTU Pass at the entrance.",
+        },
+        "variants": (
+            "NTU 游泳池在哪里", "使用泳池需要付费吗", "进入泳池需要带什么证件", "进泳池要带什么",
+            "where is the ntu pool", "does the pool cost money", "what pass do i need to enter",
+        ),
+    },
+    {
+        "id": "pool-attire",
+        "topic": ("泳帽", "泳镜", "泳衣", "着装", "swim cap", "goggles", "swimsuit", "attire"),
+        "zh": {
+            "q": "泳帽和泳镜是强制的吗？",
+            "a": "是。所有人都必须佩戴泳帽和泳镜；女性需穿泳衣，男性需穿泳裤。现场要求以救生员指示为准。",
+        },
+        "en": {
+            "q": "Are swim caps and goggles mandatory?",
+            "a": "Yes. Everyone must wear a swim cap and goggles; women need a swimsuit and men need swim trunks. Follow any additional onsite lifeguard instructions.",
+        },
+        "variants": (
+            "泳帽和泳镜是强制的吗", "游泳一定要戴泳帽吗", "泳池着装要求",
+            "are swim caps required", "do i need goggles", "pool attire rules",
+        ),
+    },
 
     # ---------------- Manual reports (7) ----------------
     {
@@ -342,14 +400,15 @@ HARD_KB_ENTRIES: list[dict] = [
         "topic": ("上报", "报告", "report"),
         "zh": {
             "q": "我该如何提交手动泳池上报？",
-            "a": "登录并完成邮箱验证后，在首页状态卡旁点击「Report Status」按钮，选择「泳池开放」或「泳池关闭」即可提交。游客可以查看上报，但不能提交。",
+            "a": "Manual Report（人工上报）用于弥补天气 API 延迟，让现场用户补充泳池实际开放或关闭情况。登录并完成邮箱验证后，在首页状态卡旁点击「Report Status」，只需选择「泳池开放」或「泳池关闭」；系统会自动记录用户名和提交时间。游客可以查看，但不能提交。",
         },
         "en": {
             "q": "How can I submit a manual pool report?",
-            "a": "Log in with a verified account, then use the 'Report Status' button next to the status card on the homepage and choose 'Pool is Open' or 'Pool is Closed'. Guests can view reports but cannot submit them.",
+            "a": "Manual Reports bridge weather-API delay with onsite observations. Log in with a verified account, use 'Report Status' next to the homepage status card, and choose only 'Pool is Open' or 'Pool is Closed'; the site records your username and submission time automatically. Guests can view reports but cannot submit them.",
         },
         "variants": (
             "怎么上报泳池状态", "如何提交上报", "上报按钮在哪里", "怎么报告泳池开放",
+            "Manual Report 有什么用", "提交人工报告时要填哪些信息",
             "how do i report pool status", "where is the report button",
             "how to submit a report",
         ),
@@ -359,14 +418,15 @@ HARD_KB_ENTRIES: list[dict] = [
         "topic": ("上报", "report", "谁", "who", "权限", "allowed"),
         "zh": {
             "q": "谁可以提交泳池上报？",
-            "a": "只有已登录且完成邮箱验证的用户可以提交上报。这个限制是为了防止刷报，保证众包信号的可信度。",
+            "a": "只有已登录且完成邮箱验证的用户可以提交上报。上报不是匿名的，会显示提交者的用户名和提交时间；这个限制用于防止刷报并保证众包信号可信。",
         },
         "en": {
             "q": "Who is allowed to submit a pool report?",
-            "a": "Only logged-in users whose email has been verified can submit reports. The restriction keeps the crowdsourced signal spam-free.",
+            "a": "Only logged-in users whose email has been verified can submit reports. Reports are not anonymous: the submitter's username and submission time are shown. This keeps the crowdsourced signal accountable and spam-free.",
         },
         "variants": (
             "谁能上报", "上报需要什么条件", "游客可以上报吗", "上报要登录吗",
+            "人工报告是匿名的吗", "上报会显示用户名吗",
             "who can submit reports", "can guests report", "do i need an account to report",
         ),
     },
@@ -383,6 +443,7 @@ HARD_KB_ENTRIES: list[dict] = [
         },
         "variants": (
             "多少条上报能覆盖天气", "社区共识规则是什么", "几条上报可以改变状态", "共识条件是什么",
+            "社区报告在什么条件下能覆盖天气判断",
             "community consensus rule", "how does consensus override weather",
             "how many reports change the status",
         ),
@@ -400,6 +461,7 @@ HARD_KB_ENTRIES: list[dict] = [
         },
         "variants": (
             "上报显示多久", "为什么有的上报是灰色的", "上报会保留多长时间", "首页显示几条上报",
+            "人工报告超过多久会被标成过时",
             "how long are reports shown", "why are some reports greyed out",
             "how many reports are displayed",
         ),
@@ -417,6 +479,7 @@ HARD_KB_ENTRIES: list[dict] = [
         },
         "variants": (
             "有人乱报怎么办", "会不会有人刷上报", "恶意上报如何处理",
+            "一个人能靠反复报告改变泳池状态吗",
             "can someone game the reports", "what about fake reports",
         ),
     },
@@ -449,6 +512,7 @@ HARD_KB_ENTRIES: list[dict] = [
         },
         "variants": (
             "状态准不准", "数据可靠吗", "显示的状态可信吗",
+            "网页说开放但救生员说关闭我该听谁的",
             "is the status reliable", "how accurate is the data",
         ),
     },
@@ -525,14 +589,15 @@ HARD_KB_ENTRIES: list[dict] = [
         "topic": ("密码", "重置", "忘记", "password", "reset", "forgot"),
         "zh": {
             "q": "忘记密码了怎么重置？",
-            "a": "在登录页点击「忘记密码」，输入注册邮箱，收取 6 位验证码后即可设置新密码。新密码至少 8 位。",
+            "a": "不能绕过邮箱验证直接改密码。在登录页点击「忘记密码」，输入注册邮箱并通过收到的 6 位验证码验证身份后，才可以设置至少 8 位的新密码。",
         },
         "en": {
             "q": "How do I reset a forgotten password?",
-            "a": "Use 'Forgot password' on the login page, enter your registered email, receive the 6-digit code, then set a new password of at least 8 characters.",
+            "a": "You cannot bypass email verification to change the password. Use 'Forgot password' on the login page, enter your registered email, verify with the 6-digit code, then set a new password of at least 8 characters.",
         },
         "variants": (
             "怎么改密码", "密码忘了", "重置密码流程", "如何找回密码",
+            "忘记密码后能不验证邮箱直接改密码吗",
             "how to change my password", "i forgot my password", "password reset steps",
         ),
     },
@@ -623,14 +688,15 @@ HARD_KB_ENTRIES: list[dict] = [
         "topic": ("发帖", "发布", "post", "create", "写"),
         "zh": {
             "q": "怎么发布一个新帖子？",
-            "a": "登录并完成邮箱验证后，在社区页点击「New Post」，选择分类、填写标题和正文，可选上传一张图片（JPEG 或 PNG，不超过 2MB）后发布。",
+            "a": "只有登录并完成邮箱验证的用户和管理员可以发帖或评论。普通用户在社区页点击「New Post」，选择分类、填写标题和正文，可选上传一张图片（JPEG 或 PNG，不超过 2MB）后发布。游客只能浏览。",
         },
         "en": {
             "q": "How do I create a new post?",
-            "a": "Log in with a verified account, open the Community page and press 'New Post'. Choose a category, write a title and body, and optionally attach one image (JPEG or PNG, up to 2 MB).",
+            "a": "Only verified logged-in users and admins can post or comment. Open the Community page and press 'New Post', choose a category, write a title and body, and optionally attach one image (JPEG or PNG, up to 2 MB). Guests can only browse.",
         },
         "variants": (
             "怎么发帖", "如何发布帖子", "发帖流程", "怎么写帖子",
+            "谁可以发布帖子和评论",
             "how to post", "how do i publish a post", "creating a post",
         ),
     },
@@ -655,14 +721,15 @@ HARD_KB_ENTRIES: list[dict] = [
         "topic": ("评论", "回复", "comment", "reply"),
         "zh": {
             "q": "怎么评论和回复别人？",
-            "a": "打开帖子详情页，在底部输入框填写内容即可评论；点击某条评论的回复按钮可以进行楼中楼回复。评论同样支持点赞，也可以附带图片。",
+            "a": "打开帖子详情页，在底部输入框填写内容即可评论；点击某条评论的回复按钮可以进行楼中楼回复，最多支持两层。评论同样支持点赞，也可以附带图片。",
         },
         "en": {
             "q": "How do I comment and reply to others?",
-            "a": "Open a post's detail page and use the input box at the bottom to comment. Use a comment's reply button for nested replies. Comments can be liked and can include an image.",
+            "a": "Open a post's detail page and use the input box at the bottom to comment. Use a comment's reply button for nested replies, with at most two levels. Comments can be liked and can include an image.",
         },
         "variants": (
             "怎么评论", "如何回复评论", "楼中楼怎么用", "评论功能怎么用",
+            "评论可以楼中楼回复多少层",
             "how to comment", "how do i reply to a comment", "nested replies",
         ),
     },
@@ -719,14 +786,15 @@ HARD_KB_ENTRIES: list[dict] = [
         "topic": ("私信", "message", "聊天", "chat", "dm"),
         "zh": {
             "q": "怎么给其他用户发私信？",
-            "a": "已验证用户可以进入对方的个人主页，或通过消息页发起一对一私信。导航栏会显示未读消息数量。",
+            "a": "已验证且未被封禁的用户可以进入对方个人主页或通过消息页发起一对一私信；被封禁用户不能发送私信。导航栏会显示未读消息数量。",
         },
         "en": {
             "q": "How do I send a private message to another user?",
-            "a": "Verified users can open another user's profile or use the Messages page to start a one-to-one conversation. Unread counts appear in the navigation bar.",
+            "a": "Verified, non-banned users can open another user's profile or use the Messages page to start a one-to-one conversation. Banned users cannot send private messages. Unread counts appear in the navigation bar.",
         },
         "variants": (
             "怎么私聊", "私信功能在哪", "怎么发消息给别人",
+            "被封禁的用户还能发送私信吗",
             "how to send a dm", "where are private messages",
         ),
     },
@@ -744,6 +812,22 @@ HARD_KB_ENTRIES: list[dict] = [
         "variants": (
             "帖子能发图片吗", "图片大小限制", "支持什么图片格式",
             "can i upload photos", "image size limit", "supported image formats",
+        ),
+    },
+    {
+        "id": "admin-moderation",
+        "topic": ("管理员", "置顶", "封禁", "admin", "pin", "ban"),
+        "zh": {
+            "q": "谁可以置顶帖子和封禁用户？",
+            "a": "只有管理员可以置顶或取消置顶帖子，以及封禁或解封普通用户；管理员不能被其他管理员封禁。",
+        },
+        "en": {
+            "q": "Who can pin posts and ban users?",
+            "a": "Only admins can pin or unpin posts and ban or unban regular users. Admin accounts cannot be banned by another admin.",
+        },
+        "variants": (
+            "谁可以置顶帖子和封禁用户", "置顶和封禁是谁的权限", "管理员能做什么审核操作",
+            "who can pin posts", "who can ban users", "admin moderation permissions",
         ),
     },
     {
@@ -887,6 +971,25 @@ DATA_QUERY_MARKERS = (
 DATA_QUERY_ENTITIES = (
     "上报", "帖子", "评论", "report", "reports", "post", "posts", "comment", "comments",
 )
+
+HARD_KB_BYPASS_MARKERS = (
+    "long hair", "长发", "头发",
+)
+EXPLICIT_OUT_OF_SCOPE_MARKERS = (
+    "bitcoin", "crypto price", "cryptocurrency price", "stock price", "investment advice",
+    "比特币", "加密货币", "股票价格", "投资建议",
+)
+
+
+def is_explicit_out_of_scope(question: str) -> bool:
+    lowered = (question or "").strip().lower()
+    return bool(lowered and any(marker in lowered for marker in EXPLICIT_OUT_OF_SCOPE_MARKERS))
+
+
+def out_of_scope_answer(question: str) -> str:
+    if question_language(question) == "zh":
+        return "这个问题暂不在我的支持范围内。你可以问我泳池实时状态、天气风险、开放时间、人工上报、社区或账号使用问题。"
+    return "This question is outside my supported scope. You can ask about live pool status, weather risk, opening hours, manual reports, the community, or account usage."
 
 
 def _looks_like_live_query(normalized_question: str, raw_question: str) -> bool:
@@ -1034,6 +1137,8 @@ def match_hard_kb(question: str):
     normalized = _normalize(text)
     if not normalized:
         return None
+    if any(marker in text.lower() for marker in HARD_KB_BYPASS_MARKERS):
+        return None
     if _looks_like_live_query(normalized, text):
         return None
 
@@ -1073,6 +1178,10 @@ def match_hard_kb(question: str):
 def answer_for(entry: dict, language: str) -> str:
     lang = "zh" if language == "zh" else "en"
     return entry[lang]["a"]
+
+
+def question_language(question: str) -> str:
+    return "zh" if len(_CJK_RE.findall(question or "")) >= 2 else "en"
 
 
 def question_for(entry: dict, language: str) -> str:

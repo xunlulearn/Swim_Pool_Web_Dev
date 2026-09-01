@@ -17,7 +17,9 @@ except Exception:  # pragma: no cover - dependency may be missing in lightweight
 
 try:
     from app.services.chatbot import ChatbotConfigError, get_rag_app
+    from app.services.chatbot import hard_kb
 except Exception as import_error:
+    hard_kb = None
     class ChatbotConfigError(RuntimeError):
         pass
 
@@ -54,6 +56,7 @@ DAILY_LIMIT_ERROR = (
 
 _rate_lock = Lock()
 _rate_buckets: dict[int, deque] = {}
+_supabase_io_lock = Lock()
 
 
 def _check_burst_limit(user_id: int) -> bool:
@@ -102,14 +105,15 @@ def _check_daily_limit(user_id: int) -> bool:
         day_start = datetime.now(timezone.utc).replace(
             hour=0, minute=0, second=0, microsecond=0
         )
-        response = (
-            client.table(_get_chat_log_table_name())
-            .select("id", count="exact")
-            .eq("user_id", user_id)
-            .gte("created_at", day_start.isoformat())
-            .limit(1)
-            .execute()
-        )
+        with _supabase_io_lock:
+            response = (
+                client.table(_get_chat_log_table_name())
+                .select("id", count="exact")
+                .eq("user_id", user_id)
+                .gte("created_at", day_start.isoformat())
+                .limit(1)
+                .execute()
+            )
         return int(response.count or 0) < limit
     except Exception:
         current_app.logger.warning(
@@ -415,24 +419,48 @@ def _build_homepage_context(client_page_context=None) -> list[str]:
 
 
 def _build_chat_response_payload(message: str, client_page_context=None):
-    try:
-        rag_app = get_rag_app(
-            top_k=current_app.config.get("CHATBOT_TOP_K"),
-            min_score=current_app.config.get("CHATBOT_MIN_SCORE"),
-            max_context_chars=current_app.config.get("CHATBOT_MAX_CONTEXT_CHARS"),
-        )
-        result = rag_app.invoke(
-            {
-                "question": message,
-                "page_context": _build_homepage_context(client_page_context),
-            }
-        )
-    except ChatbotConfigError as exc:
-        current_app.logger.warning("Chatbot configuration error: %s", exc)
-        return None, ("Chatbot is not configured.", 503)
-    except Exception:
-        current_app.logger.exception("Unexpected error in /api/chat.")
-        return None, ("Internal chatbot error.", 500)
+    is_explicit_out_of_scope = (
+        hard_kb.is_explicit_out_of_scope(message) if hard_kb is not None else False
+    )
+    hard_match = hard_kb.match_hard_kb(message) if hard_kb is not None else None
+    if is_explicit_out_of_scope:
+        language = hard_kb.question_language(message)
+        result = {
+            "answer": hard_kb.out_of_scope_answer(message),
+            "sources": [],
+            "quick_questions": hard_kb.suggested_questions(language, count=3),
+        }
+    elif hard_match is not None:
+        entry, _score = hard_match
+        language = hard_kb.question_language(message)
+        result = {
+            "answer": hard_kb.answer_for(entry, language),
+            "sources": ["app://hard-kb/" + entry["id"]],
+            "quick_questions": hard_kb.suggested_questions(
+                language,
+                count=3,
+                exclude_ids=(entry["id"],),
+            ),
+        }
+    else:
+        try:
+            rag_app = get_rag_app(
+                top_k=current_app.config.get("CHATBOT_TOP_K"),
+                min_score=current_app.config.get("CHATBOT_MIN_SCORE"),
+                max_context_chars=current_app.config.get("CHATBOT_MAX_CONTEXT_CHARS"),
+            )
+            result = rag_app.invoke(
+                {
+                    "question": message,
+                    "page_context": _build_homepage_context(client_page_context),
+                }
+            )
+        except ChatbotConfigError as exc:
+            current_app.logger.warning("Chatbot configuration error: %s", exc)
+            return None, ("Chatbot is not configured.", 503)
+        except Exception:
+            current_app.logger.exception("Unexpected error in /api/chat.")
+            return None, ("Internal chatbot error.", 500)
 
     reply = result.get("answer") if isinstance(result, dict) else None
     if not isinstance(reply, str) or not reply.strip():
@@ -488,7 +516,9 @@ def _stream_event(payload: dict) -> str:
     return json.dumps(payload, ensure_ascii=False) + "\n"
 
 
-def _persist_chatbot_exchange(*, user_id: int, message: str, reply: str, sources: list[str]) -> dict:
+def _persist_chatbot_exchange_unlocked(
+    *, user_id: int, message: str, reply: str, sources: list[str]
+) -> dict:
     client = _get_supabase_client()
     table_name = _get_chat_log_table_name()
 
@@ -532,7 +562,19 @@ def _persist_chatbot_exchange(*, user_id: int, message: str, reply: str, sources
     }
 
 
-def _save_chatbot_feedback(
+def _persist_chatbot_exchange(
+    *, user_id: int, message: str, reply: str, sources: list[str]
+) -> dict:
+    with _supabase_io_lock:
+        return _persist_chatbot_exchange_unlocked(
+            user_id=user_id,
+            message=message,
+            reply=reply,
+            sources=sources,
+        )
+
+
+def _save_chatbot_feedback_unlocked(
     *, user_id: int, conversation_id: str, rating: int, comment: str
 ) -> None:
     client = _get_supabase_client()
@@ -587,6 +629,18 @@ def _save_chatbot_feedback(
 
     if not (update_response.data or []):
         raise RuntimeError("Supabase update returned no rows.")
+
+
+def _save_chatbot_feedback(
+    *, user_id: int, conversation_id: str, rating: int, comment: str
+) -> None:
+    with _supabase_io_lock:
+        _save_chatbot_feedback_unlocked(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            rating=rating,
+            comment=comment,
+        )
 
 
 @chatbot_bp.route("/api/chat", methods=["POST"])

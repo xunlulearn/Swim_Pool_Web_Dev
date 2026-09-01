@@ -773,6 +773,7 @@ class GraphState(TypedDict, total=False):
 
 
 _graph_lock = threading.Lock()
+_vector_store_lock = threading.RLock()
 _cached_graph: Any | None = None
 _cached_key: tuple[Any, ...] | None = None
 
@@ -968,6 +969,8 @@ def _contains_hint(text: str, hints) -> bool:
 def _detect_language(text: str) -> str:
     cjk_count = len(re.findall(r"[\u4e00-\u9fff]", text))
     latin_count = len(re.findall(r"[A-Za-z]", text))
+    if cjk_count >= 2:
+        return "zh"
     if cjk_count > latin_count:
         return "zh"
     if latin_count > 0:
@@ -1462,6 +1465,10 @@ def _looks_like_capability_question(question: str) -> bool:
     return _contains_hint(lowered, CAPABILITY_QUESTION_HINTS)
 
 
+def _looks_explicitly_out_of_scope(question: str) -> bool:
+    return hard_kb.is_explicit_out_of_scope(question)
+
+
 def _is_small_talk_heuristic(question: str) -> bool:
     lowered = (question or "").strip().lower()
     if not lowered:
@@ -1803,6 +1810,8 @@ def _extract_json_object(raw: str) -> dict[str, Any] | None:
 
 
 def _heuristic_intent(question: str) -> str:
+    if _looks_explicitly_out_of_scope(question):
+        return INTENT_FALLBACK
     if _looks_like_capability_question(question):
         return INTENT_CAPABILITY
     if _is_small_talk_heuristic(question):
@@ -1838,6 +1847,10 @@ def _merge_model_intent_with_heuristic(
     fallback_question: str = "",
 ) -> str:
     normalized_model_intent = _normalize_intent(model_intent)
+    if _looks_explicitly_out_of_scope(question) or _looks_explicitly_out_of_scope(
+        fallback_question
+    ):
+        return INTENT_FALLBACK
     heuristic_intent = _heuristic_intent(question)
     fallback_heuristic_intent = (
         _heuristic_intent(fallback_question)
@@ -1918,6 +1931,8 @@ def _confident_heuristic_intent(question: str, fallback_question: str = "") -> s
         return domain or INTENT_CAPABILITY
     if primary == INTENT_SMALL_TALK:
         return INTENT_SMALL_TALK
+    if _looks_explicitly_out_of_scope(text) or _looks_explicitly_out_of_scope(fallback_text):
+        return INTENT_FALLBACK
     if domain is not None:
         return domain
     return None
@@ -1987,13 +2002,14 @@ def _load_docs_by_source_type(
         return []
 
     try:
-        response = (
-            client.table(table_name)
-            .select("content,metadata")
-            .contains("metadata", {"source_type": source_type})
-            .limit(max(1, int(limit)))
-            .execute()
-        )
+        with _vector_store_lock:
+            response = (
+                client.table(table_name)
+                .select("content,metadata")
+                .contains("metadata", {"source_type": source_type})
+                .limit(max(1, int(limit)))
+                .execute()
+            )
     except Exception:
         return []
 
@@ -2094,7 +2110,7 @@ def _load_backend_priority_docs(vector_store: SupabaseVectorStore, top_k: int) -
     return docs
 
 
-def _search_with_optional_scores(
+def _search_with_optional_scores_unlocked(
     vector_store: SupabaseVectorStore, question: str, top_k: int
 ) -> list[tuple[Any, float | None]]:
     # With ANN indexes (for example IVFFLAT), a tiny candidate pool can miss
@@ -2176,6 +2192,16 @@ def _search_with_optional_scores(
             )
         )
     return results
+
+
+def _search_with_optional_scores(
+    vector_store: SupabaseVectorStore, question: str, top_k: int
+) -> list[tuple[Any, float | None]]:
+    try:
+        with _vector_store_lock:
+            return _search_with_optional_scores_unlocked(vector_store, question, top_k)
+    except Exception:
+        return []
 
 
 def _truncate_context(context_chunks: list[str], max_chars: int) -> str:
@@ -2905,7 +2931,7 @@ def _build_graph(
             return {}
 
         entry, score = match
-        language = _detect_language(question)
+        language = hard_kb.question_language(question)
         return {
             "answer": hard_kb.answer_for(entry, language),
             "sources": ["app://hard-kb/" + entry["id"]],
@@ -2988,13 +3014,23 @@ def _build_graph(
         backend_priority_docs: list[Document] = []
         question_en = ""
         min_kb_chunks = min(2, max(1, top_k))
+        answered_from_live_context = bool(page_context) and (
+            _looks_like_live_pool_decision_question(question)
+            or _looks_like_live_pool_decision_question(original_question)
+            or _looks_like_live_context_followup_question(question)
+            or _looks_like_live_context_followup_question(original_question)
+        )
 
         if is_backend_rules:
             # Keep backend snapshots as fallback context for backend-rule questions.
             # Do not skip vector retrieval; KB chunks may hold the actual answer.
             backend_priority_docs = _load_backend_priority_docs(vector_store, top_k)
 
-        matched = _search_with_optional_scores(vector_store, retrieval_question, top_k)
+        matched = (
+            []
+            if answered_from_live_context
+            else _search_with_optional_scores(vector_store, retrieval_question, top_k)
+        )
 
         # Second chance for non-English questions: when nothing clears the
         # score threshold, translate the query once (QA model, bounded) and
@@ -3006,12 +3042,6 @@ def _build_graph(
         # extra translation round-trip would only add latency. This is a
         # narrow, question-type-based guard — NOT "page context exists",
         # which is what previously disabled every recovery path here.
-        answered_from_live_context = bool(page_context) and (
-            _looks_like_live_pool_decision_question(question)
-            or _looks_like_live_pool_decision_question(original_question)
-            or _looks_like_live_context_followup_question(question)
-            or _looks_like_live_context_followup_question(original_question)
-        )
         if input_language != "en" and not answered_from_live_context:
             has_confident_match = any(
                 score is not None and score >= min_score for _doc, score in matched
@@ -3238,10 +3268,11 @@ def _build_graph(
                 "quick_questions": quick_questions,
             }
 
-        return {
-            "answer": _fallback_reply_for_question(original_question or question),
-            "sources": [],
-            "quick_questions": _quick_questions_from_similar_context(
+        fallback_question = original_question or question
+        quick_questions = (
+            hard_kb.suggested_questions(input_language, count=3)
+            if _looks_explicitly_out_of_scope(fallback_question)
+            else _quick_questions_from_similar_context(
                 question=faq_rank_question,
                 context_chunks=context_list,
                 vector_store=vector_store,
@@ -3249,7 +3280,12 @@ def _build_graph(
                 top_k=top_k,
                 min_score=min_score,
                 max_context_chars=max_context_chars,
-            ),
+            )
+        )
+        return {
+            "answer": _fallback_reply_for_question(fallback_question),
+            "sources": [],
+            "quick_questions": quick_questions,
         }
 
     def localize_node(state: GraphState) -> GraphState:

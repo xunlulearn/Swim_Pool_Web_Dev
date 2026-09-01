@@ -1,10 +1,14 @@
 import json
+import threading
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
 from app import create_app, db
 from app.blueprints.chatbot import ChatbotConfigError
+from app.blueprints import chatbot as chatbot_module
 from app.models.user import User
 
 
@@ -105,6 +109,60 @@ def test_chat_success_returns_reply_sources_and_feedback_metadata(auth_client, m
         "How can I submit a manual pool report?",
     ]
     assert "feedback_prompt" in data
+
+
+def test_static_hard_kb_answer_skips_graph_and_homepage_weather(auth_client, mocker):
+    mocker.patch("app.blueprints.chatbot._check_burst_limit", return_value=True)
+    mocker.patch(
+        "app.blueprints.chatbot.get_rag_app",
+        side_effect=AssertionError("hard KB should bypass graph construction"),
+    )
+    mocker.patch(
+        "app.blueprints.chatbot._build_homepage_context",
+        side_effect=AssertionError("static answer should not fetch live weather"),
+    )
+    mocker.patch(
+        "app.blueprints.chatbot._persist_chatbot_exchange",
+        return_value={
+            "conversation_id": "93ab65e7-18cc-4913-8521-5ca4c2410f2b",
+            "message_counter": 1,
+            "feedback_required": False,
+        },
+    )
+
+    response = auth_client.post("/api/chat", json={"message": "周末泳池营业时间是什么？"})
+    data = response.get_json()
+
+    assert response.status_code == 200
+    assert "8:00" in data["reply"]
+    assert data["sources"] == ["app://hard-kb/hours-weekend"]
+
+
+def test_explicit_out_of_scope_answer_skips_graph_and_homepage_weather(auth_client, mocker):
+    mocker.patch("app.blueprints.chatbot._check_burst_limit", return_value=True)
+    mocker.patch(
+        "app.blueprints.chatbot.get_rag_app",
+        side_effect=AssertionError("explicit fallback should bypass graph construction"),
+    )
+    mocker.patch(
+        "app.blueprints.chatbot._build_homepage_context",
+        side_effect=AssertionError("explicit fallback should not fetch live weather"),
+    )
+    mocker.patch(
+        "app.blueprints.chatbot._persist_chatbot_exchange",
+        return_value={
+            "conversation_id": "93ab65e7-18cc-4913-8521-5ca4c2410f2b",
+            "message_counter": 1,
+            "feedback_required": False,
+        },
+    )
+
+    response = auth_client.post("/api/chat", json={"message": "请预测明天比特币价格"})
+    data = response.get_json()
+
+    assert response.status_code == 200
+    assert "不在我的支持范围" in data["reply"]
+    assert data["sources"] == []
 
 
 def test_chat_passes_homepage_context_to_rag_app(auth_client, mocker):
@@ -320,3 +378,36 @@ def test_chat_feedback_invalid_rating_returns_400(auth_client):
 
     assert response.status_code == 400
     assert "rating" in data["error"]
+
+
+def test_chat_log_writes_are_serialized(monkeypatch):
+    active = 0
+    max_active = 0
+    probe_lock = threading.Lock()
+
+    def fake_persist(**_kwargs):
+        nonlocal active, max_active
+        with probe_lock:
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.02)
+        with probe_lock:
+            active -= 1
+        return {"conversation_id": "test", "message_counter": 1, "feedback_required": False}
+
+    monkeypatch.setattr(chatbot_module, "_persist_chatbot_exchange_unlocked", fake_persist)
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(
+            executor.map(
+                lambda value: chatbot_module._persist_chatbot_exchange(
+                    user_id=value,
+                    message="q",
+                    reply="a",
+                    sources=[],
+                ),
+                range(4),
+            )
+        )
+
+    assert len(results) == 4
+    assert max_active == 1

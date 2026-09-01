@@ -40,8 +40,8 @@ def _build_app():
 
 # --- data integrity ---------------------------------------------------------
 
-def test_hard_kb_has_fifty_bilingual_entries():
-    assert hard_kb.hard_kb_size() == 50
+def test_hard_kb_has_fifty_four_bilingual_entries():
+    assert hard_kb.hard_kb_size() == 54
     ids = [entry["id"] for entry in hard_kb.HARD_KB_ENTRIES]
     assert len(ids) == len(set(ids)), "entry ids must be unique"
     for entry in hard_kb.HARD_KB_ENTRIES:
@@ -92,6 +92,29 @@ def test_chinese_entries_are_chinese_and_english_entries_are_english():
         ("how often does status update", {"refresh-rate"}),
         ("where can i see saved posts", {"like-save"}),
         ("is this open source", {"tech-stack"}),
+        # Regression coverage from the 50-question production evaluation.
+        ("系统怎么判断泳池是开放还是关闭？", {"status-priority"}),
+        ("15公里内出现闪电会怎样？", {"lightning-threshold"}),
+        ("暴雨结束后要等多久才能重开？", {"rain-rule"}),
+        ("雷达图覆盖泳池周围多大范围？", {"radar-map"}),
+        ("Manual Report 有什么用？", {"report-how"}),
+        ("提交人工报告时要填哪些信息？", {"report-how"}),
+        ("人工报告是匿名的吗？", {"report-who"}),
+        ("人工报告超过多久会被标成过时？", {"report-visibility"}),
+        ("一个人能靠反复报告改变泳池状态吗？", {"report-abuse"}),
+        ("周末泳池营业时间是什么？", {"hours-weekend"}),
+        ("NTU 游泳池在哪里？", {"pool-entry"}),
+        ("使用泳池需要付费吗？", {"pool-entry"}),
+        ("进入泳池需要带什么证件？", {"pool-entry"}),
+        ("泳帽和泳镜是强制的吗？", {"pool-attire"}),
+        ("谁可以发布帖子和评论？", {"create-post"}),
+        ("被封禁的用户还能发送私信吗？", {"private-message"}),
+        ("为什么外面看起来晴天，网页却显示关闭？", {"status-sunny-closed"}),
+        ("非营业时间天气很好，状态会显示开放吗？", {"hours-outside"}),
+        ("雷暴时泳池如何疏散？", {"lightning-threshold"}),
+        ("忘记密码后能不验证邮箱直接改密码吗？", {"reset-password"}),
+        ("评论可以楼中楼回复多少层？", {"comment-reply"}),
+        ("谁可以置顶帖子和封禁用户？", {"admin-moderation"}),
     ],
 )
 def test_paraphrases_match_the_right_entry(question, expected_ids):
@@ -118,6 +141,7 @@ def test_paraphrases_match_the_right_entry(question, expected_ids):
         "帮我写一个Python爬虫",
         "推荐几部电影",
         "What is the capital of France?",
+        "What is the swim cap policy for long hair?",
     ],
 )
 def test_dynamic_and_out_of_scope_questions_never_match(question):
@@ -177,6 +201,16 @@ def test_hard_kb_answer_follows_question_language():
     assert zh["hard_kb_id"] == en["hard_kb_id"] == "lightning-cooldown"
     assert "45 分钟" in zh["answer"]
     assert "45-minute" in en["answer"]
+
+
+def test_mixed_domain_term_question_still_answers_in_chinese():
+    app = _build_app()
+
+    result = app.invoke({"question": "Nearest Lightning 是什么意思？"})
+
+    assert result["hard_kb_id"] == "nearest-lightning"
+    assert "最近" in result["answer"]
+    assert any("一" <= ch <= "鿿" for ch in result["answer"])
 
 
 def test_hard_kb_hit_returns_three_suggestions_in_the_same_language():
